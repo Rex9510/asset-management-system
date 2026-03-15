@@ -1,0 +1,36 @@
+import { Router, Request, Response, NextFunction } from 'express';
+import { register, login, blacklistToken } from './authService';
+import { authMiddleware } from '../middleware/authMiddleware';
+
+const router = Router();
+
+router.post('/register', (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { username, password } = req.body;
+    const result = register(username, password);
+    res.status(201).json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/login', (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { username, password } = req.body;
+    const result = login(username, password);
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+router.post('/logout', authMiddleware, (req: Request, res: Response) => {
+  const authHeader = req.headers.authorization;
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    const token = authHeader.slice(7);
+    blacklistToken(token);
+  }
+  res.json({ message: '已退出登录' });
+});
+
+export default router;

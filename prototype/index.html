@@ -1,0 +1,632 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>AI智能投资陪伴助手 - 原型</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f5f6fa; color: #333; max-width: 428px; margin: 0 auto; min-height: 100vh; position: relative; }
+
+/* 顶部栏 */
+.header { background: #1a1a2e; color: #fff; padding: 12px 16px; display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; z-index: 100; }
+.header h1 { font-size: 18px; font-weight: 600; }
+.header .total { font-size: 12px; color: #aaa; }
+.header .total span { color: #4ecdc4; font-size: 16px; font-weight: 600; }
+
+/* 总资产卡片 */
+.portfolio-summary { background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); color: #fff; padding: 20px 16px; }
+.portfolio-summary .label { font-size: 12px; color: #aaa; margin-bottom: 4px; }
+.portfolio-summary .value { font-size: 28px; font-weight: 700; margin-bottom: 8px; }
+.portfolio-summary .profit { display: flex; gap: 16px; }
+.portfolio-summary .profit-item { font-size: 13px; }
+.profit-up { color: #ff4757; }
+.profit-down { color: #2ed573; }
+
+/* 股票卡片 */
+.stock-list { padding: 12px; padding-bottom: 80px; }
+.stock-card { background: #fff; border-radius: 12px; padding: 16px; margin-bottom: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.06); }
+.stock-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+.stock-name { font-size: 16px; font-weight: 600; }
+.stock-code { font-size: 12px; color: #999; margin-left: 6px; }
+.stock-price { text-align: right; }
+.stock-price .current { font-size: 20px; font-weight: 700; }
+.stock-price .change { font-size: 13px; padding: 2px 8px; border-radius: 4px; display: inline-block; margin-top: 2px; }
+.change-up { background: rgba(255,71,87,0.1); color: #ff4757; }
+.change-down { background: rgba(46,213,115,0.1); color: #2ed573; }
+
+.stock-info { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 8px; margin-bottom: 12px; padding-bottom: 12px; border-bottom: 1px solid #f0f0f0; }
+.stock-info .info-item { text-align: center; }
+.stock-info .info-label { font-size: 11px; color: #999; margin-bottom: 2px; }
+.stock-info .info-value { font-size: 13px; font-weight: 600; }
+
+/* AI分析区域 */
+.ai-analysis { background: #f8f9ff; border-radius: 8px; padding: 12px; }
+.ai-tag { display: inline-flex; align-items: center; gap: 4px; margin-bottom: 8px; }
+.ai-tag .dot { width: 8px; height: 8px; border-radius: 50%; }
+.dot-green { background: #2ed573; }
+.dot-yellow { background: #ffa502; }
+.dot-red { background: #ff4757; }
+.ai-tag .stage { font-size: 12px; font-weight: 600; padding: 2px 8px; border-radius: 10px; }
+.stage-up { background: rgba(255,71,87,0.1); color: #ff4757; }
+.stage-hold { background: rgba(255,165,2,0.1); color: #ffa502; }
+.stage-down { background: rgba(46,213,115,0.1); color: #2ed573; }
+.ai-content { font-size: 13px; line-height: 1.6; color: #555; }
+.ai-content .action { font-weight: 600; color: #1a1a2e; }
+.risk-alert { font-size: 12px; color: #e67e22; background: rgba(230,126,34,0.08); border: 1px solid rgba(230,126,34,0.2); border-radius: 6px; padding: 6px 10px; margin-bottom: 8px; line-height: 1.5; }
+.confidence { font-size: 11px; color: #999; margin-top: 8px; display: flex; justify-content: space-between; align-items: center; }
+.conf-tag { font-size: 11px; font-weight: 600; padding: 2px 6px; border-radius: 4px; }
+.conf-high { background: rgba(46,213,115,0.1); color: #2ed573; }
+.conf-mid { background: rgba(255,165,2,0.1); color: #e6960a; }
+.conf-low { background: rgba(255,71,87,0.1); color: #ff4757; }
+.expand-btn { font-size: 12px; color: #4a69bd; cursor: pointer; border: none; background: none; padding: 4px 8px; }
+.refresh-btn { font-size: 12px; color: #4a69bd; cursor: pointer; border: 1px solid #4a69bd; background: none; padding: 4px 12px; border-radius: 12px; }
+
+/* 底部导航 */
+.bottom-nav { position: fixed; bottom: 0; left: 50%; transform: translateX(-50%); width: 100%; max-width: 428px; background: #fff; display: flex; justify-content: space-around; padding: 8px 0 20px; border-top: 1px solid #eee; z-index: 100; }
+.nav-item { display: flex; flex-direction: column; align-items: center; gap: 2px; cursor: pointer; position: relative; }
+.nav-item .icon { font-size: 22px; }
+.nav-item .label { font-size: 11px; color: #999; }
+.nav-item.active .label { color: #4a69bd; }
+.nav-item.active .icon { color: #4a69bd; }
+.badge { position: absolute; top: -4px; right: -8px; background: #ff4757; color: #fff; font-size: 10px; min-width: 16px; height: 16px; border-radius: 8px; display: flex; align-items: center; justify-content: center; padding: 0 4px; }
+
+/* 页面容器 */
+.page { display: none !important; }
+.page.active { display: block !important; }
+.login-page.active { display: flex !important; }
+
+/* 登录页 */
+.login-page { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; padding: 32px; background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); }
+.login-logo { font-size: 48px; margin-bottom: 8px; }
+.login-title { color: #fff; font-size: 22px; font-weight: 700; margin-bottom: 4px; }
+.login-subtitle { color: #aaa; font-size: 13px; margin-bottom: 32px; }
+.login-form { width: 100%; }
+.login-input { width: 100%; padding: 14px 16px; border: none; border-radius: 10px; background: rgba(255,255,255,0.1); color: #fff; font-size: 15px; margin-bottom: 12px; outline: none; }
+.login-input::placeholder { color: rgba(255,255,255,0.4); }
+.login-btn { width: 100%; padding: 14px; border: none; border-radius: 10px; background: #4a69bd; color: #fff; font-size: 16px; font-weight: 600; cursor: pointer; margin-top: 8px; }
+.login-switch { color: #4a69bd; font-size: 13px; text-align: center; margin-top: 16px; cursor: pointer; }
+
+/* 对话页 */
+.chat-page { padding-bottom: 140px; }
+.chat-header { background: #1a1a2e; color: #fff; padding: 12px 16px; text-align: center; font-size: 17px; font-weight: 600; position: sticky; top: 0; z-index: 10; }
+.chat-messages { padding: 16px; }
+.chat-bubble { max-width: 80%; margin-bottom: 16px; }
+.chat-bubble.user { margin-left: auto; }
+.chat-bubble .bubble-content { padding: 12px 16px; border-radius: 16px; font-size: 14px; line-height: 1.6; }
+.chat-bubble.user .bubble-content { background: #4a69bd; color: #fff; border-bottom-right-radius: 4px; }
+.chat-bubble.ai .bubble-content { background: #fff; color: #333; border-bottom-left-radius: 4px; box-shadow: 0 1px 4px rgba(0,0,0,0.08); }
+.chat-bubble .time { font-size: 11px; color: #999; margin-top: 4px; }
+.chat-bubble.user .time { text-align: right; }
+.chat-input-area { position: fixed; bottom: 68px; left: 50%; transform: translateX(-50%); width: 100%; max-width: 428px; background: #fff; padding: 12px 16px; border-top: 1px solid #eee; display: flex; gap: 8px; }
+.chat-input { flex: 1; padding: 10px 16px; border: 1px solid #e0e0e0; border-radius: 20px; font-size: 14px; outline: none; }
+.chat-send { padding: 10px 20px; background: #4a69bd; color: #fff; border: none; border-radius: 20px; font-size: 14px; cursor: pointer; }
+
+/* 消息中心页 */
+.msg-page { padding-bottom: 80px; }
+.msg-header { background: #1a1a2e; color: #fff; padding: 12px 16px; text-align: center; font-size: 17px; font-weight: 600; position: sticky; top: 0; z-index: 10; }
+.msg-filters { display: flex; gap: 8px; padding: 12px 16px; overflow-x: auto; }
+.msg-filter { padding: 6px 14px; border-radius: 16px; font-size: 13px; border: 1px solid #ddd; background: #fff; cursor: pointer; white-space: nowrap; }
+.msg-filter.active { background: #4a69bd; color: #fff; border-color: #4a69bd; }
+.msg-list { padding: 0 16px; }
+.msg-item { background: #fff; border-radius: 10px; padding: 14px; margin-bottom: 10px; box-shadow: 0 1px 4px rgba(0,0,0,0.05); }
+.msg-item .msg-type { font-size: 11px; padding: 2px 8px; border-radius: 8px; display: inline-block; margin-bottom: 6px; }
+.msg-type-analysis { background: #e8f0fe; color: #4a69bd; }
+.msg-type-alert { background: #fff3e0; color: #ff9800; }
+.msg-type-correction { background: #fce4ec; color: #e91e63; }
+.msg-item .msg-stock { font-size: 15px; font-weight: 600; margin-bottom: 4px; }
+.msg-item .msg-summary { font-size: 13px; color: #666; line-height: 1.5; }
+.msg-item .msg-time { font-size: 11px; color: #bbb; margin-top: 6px; }
+.msg-unread { border-left: 3px solid #4a69bd; }
+
+/* 我的页面 */
+.profile-page { padding-bottom: 80px; }
+.profile-header { background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); color: #fff; padding: 32px 16px; text-align: center; }
+.profile-avatar { width: 64px; height: 64px; border-radius: 50%; background: #4a69bd; display: flex; align-items: center; justify-content: center; font-size: 28px; margin: 0 auto 8px; }
+.profile-name { font-size: 18px; font-weight: 600; }
+.profile-menu { padding: 16px; }
+.menu-item { background: #fff; padding: 16px; border-radius: 10px; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center; font-size: 15px; }
+.menu-item .arrow { color: #ccc; }
+
+/* 添加持仓弹窗 */
+.modal-overlay { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); z-index: 200; justify-content: center; align-items: flex-end; }
+.modal-overlay.show { display: flex; }
+.modal { background: #fff; width: 100%; max-width: 428px; border-radius: 16px 16px 0 0; padding: 24px 16px 32px; }
+.modal h3 { font-size: 18px; margin-bottom: 16px; text-align: center; }
+.modal-input { width: 100%; padding: 12px; border: 1px solid #e0e0e0; border-radius: 8px; font-size: 14px; margin-bottom: 12px; outline: none; }
+.modal-btn { width: 100%; padding: 14px; border: none; border-radius: 10px; background: #4a69bd; color: #fff; font-size: 15px; font-weight: 600; cursor: pointer; margin-top: 8px; }
+.modal-btn.secondary { background: #f0f0f0; color: #666; margin-top: 8px; }
+
+/* 冷静弹窗 */
+.calm-modal { background: #fff; width: 90%; max-width: 380px; border-radius: 16px; padding: 24px; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 300; display: none; }
+.calm-modal.show { display: block; }
+.calm-modal h3 { font-size: 17px; text-align: center; margin-bottom: 16px; color: #ff9800; }
+.calm-section { margin-bottom: 14px; }
+.calm-section .calm-label { font-size: 12px; color: #999; margin-bottom: 4px; }
+.calm-section .calm-text { font-size: 14px; line-height: 1.6; }
+.calm-tag { display: inline-block; padding: 4px 12px; border-radius: 12px; font-size: 13px; font-weight: 600; }
+.calm-emotional { background: #fff3e0; color: #ff9800; }
+
+/* 技术指标 */
+.holding-duration { display: flex; flex-direction: column; gap: 4px; padding: 8px 12px; background: #fafafa; border-radius: 8px; margin-bottom: 10px; font-size: 12px; color: #666; }
+.holding-duration b { color: #333; }
+.holding-duration .estimate { font-size: 11px; }
+.technical-indicators { background: #f0f4ff; border-radius: 8px; padding: 10px 12px; margin-bottom: 10px; }
+.signal-row { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 6px; }
+.signal-row:last-child { margin-bottom: 0; }
+.signal-item { font-size: 11px; padding: 3px 8px; border-radius: 6px; }
+.signal-bullish { background: rgba(46,213,115,0.1); color: #2ed573; }
+.signal-neutral { background: rgba(255,165,2,0.1); color: #e6960a; }
+.signal-bearish { background: rgba(255,71,87,0.1); color: #ff4757; }
+.signal-detail { margin-top: 6px; cursor: pointer; }
+.detail-toggle { font-size: 11px; color: #4a69bd; }
+.detail-content { display: none; font-size: 10px; color: #999; margin-top: 4px; line-height: 1.5; }
+.signal-detail.open .detail-content { display: block; }
+.signal-detail.open .detail-toggle { display: none; }
+
+.fab { position: fixed; bottom: 80px; right: 16px; width: 52px; height: 52px; border-radius: 50%; background: #4a69bd; color: #fff; border: none; font-size: 28px; cursor: pointer; box-shadow: 0 4px 12px rgba(74,105,189,0.4); z-index: 50; display: flex; align-items: center; justify-content: center; }
+</style>
+</head>
+<body>
+
+<!-- 登录页 -->
+<div id="loginPage" class="login-page page active">
+    <div class="login-logo">📈</div>
+    <div class="login-title">AI投资陪伴助手</div>
+    <div class="login-subtitle">你的专业投资伙伴</div>
+    <div class="login-form">
+        <input class="login-input" placeholder="用户名" value="demo">
+        <input class="login-input" type="password" placeholder="密码" value="123456">
+        <button class="login-btn" onclick="showPage('dashboard')">登 录</button>
+        <div class="login-switch">没有账号？立即注册</div>
+    </div>
+</div>
+
+<!-- 看板页 -->
+<div id="dashboardPage" class="page">
+    <div class="portfolio-summary">
+        <div class="label">总资产（元）</div>
+        <div class="value">¥ 186,520.00</div>
+        <div class="profit">
+            <div class="profit-item">今日盈亏 <span class="profit-up">+2,380.00</span></div>
+            <div class="profit-item">总盈亏 <span class="profit-up">+18,520.00 (+11.03%)</span></div>
+        </div>
+    </div>
+
+    <div class="stock-list">
+        <!-- 今日关注 - 3只股票（短期/中期/中长期） -->
+        <div class="stock-card" style="border: 1px solid #4a69bd; background: linear-gradient(135deg, #f8f9ff 0%, #eef1ff 100%); padding-bottom:8px;">
+            <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+                <span style="font-size:14px;font-weight:700;color:#4a69bd;">🔍 今日关注</span>
+                <span style="font-size:11px;color:#999;">2026-03-14</span>
+            </div>
+
+            <!-- 短期 1-2周 -->
+            <div style="border-bottom:1px dashed #dde3f0;padding-bottom:12px;margin-bottom:12px;">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+                    <div><span style="font-size:11px;padding:2px 8px;border-radius:10px;background:#fff3e0;color:#ff9800;font-weight:600;">短期 1-2周</span></div>
+                </div>
+                <div class="stock-header" style="margin-bottom:6px;">
+                    <div><span class="stock-name">中际旭创</span><span class="stock-code">300308</span></div>
+                    <div class="stock-price">
+                        <div class="current profit-up">128.50</div>
+                        <div class="change change-up">+4.12%</div>
+                    </div>
+                </div>
+                <div class="ai-content" style="margin-bottom:6px;font-size:12px;">
+                    📊 光模块龙头，受益AI算力需求爆发。技术面放量突破，MACD金叉确认。
+                </div>
+                <div style="display:flex;gap:12px;margin-bottom:4px;padding:6px 10px;background:rgba(74,105,189,0.08);border-radius:8px;">
+                    <div style="flex:1;text-align:center;">
+                        <div style="font-size:10px;color:#999;">目标价位</div>
+                        <div style="font-size:13px;font-weight:700;color:#ff4757;">138 - 152</div>
+                    </div>
+                    <div style="flex:1;text-align:center;">
+                        <div style="font-size:10px;color:#999;">预估上升空间</div>
+                        <div style="font-size:13px;font-weight:700;color:#ff4757;">+7.4% ~ +18.3%</div>
+                    </div>
+                </div>
+                <div class="confidence"><span class="conf-tag conf-mid">🟡 中置信 75%</span><button class="expand-btn">查看完整分析 ›</button></div>
+            </div>
+
+            <!-- 中期 1-3个月 -->
+            <div style="border-bottom:1px dashed #dde3f0;padding-bottom:12px;margin-bottom:12px;">
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+                    <div><span style="font-size:11px;padding:2px 8px;border-radius:10px;background:#e8f5e9;color:#2ed573;font-weight:600;">中期 1-3个月</span></div>
+                </div>
+                <div class="stock-header" style="margin-bottom:6px;">
+                    <div><span class="stock-name">招商银行</span><span class="stock-code">600036</span></div>
+                    <div class="stock-price">
+                        <div class="current profit-up">38.20</div>
+                        <div class="change change-up">+1.06%</div>
+                    </div>
+                </div>
+                <div class="ai-content" style="margin-bottom:6px;font-size:12px;">
+                    📊 银行板块估值修复，股息率5.2%。技术面底部放量，MACD即将金叉。
+                </div>
+                <div style="display:flex;gap:12px;margin-bottom:4px;padding:6px 10px;background:rgba(74,105,189,0.08);border-radius:8px;">
+                    <div style="flex:1;text-align:center;">
+                        <div style="font-size:10px;color:#999;">目标价位</div>
+                        <div style="font-size:13px;font-weight:700;color:#ff4757;">42 - 46</div>
+                    </div>
+                    <div style="flex:1;text-align:center;">
+                        <div style="font-size:10px;color:#999;">预估上升空间</div>
+                        <div style="font-size:13px;font-weight:700;color:#ff4757;">+9.9% ~ +20.4%</div>
+                    </div>
+                </div>
+                <div class="confidence"><span class="conf-tag conf-high">🟢 高置信 82%</span><button class="expand-btn">查看完整分析 ›</button></div>
+            </div>
+
+            <!-- 中长期 3个月以上 -->
+            <div>
+                <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+                    <div><span style="font-size:11px;padding:2px 8px;border-radius:10px;background:#e8f0fe;color:#4a69bd;font-weight:600;">中长期 3个月+</span></div>
+                </div>
+                <div class="stock-header" style="margin-bottom:6px;">
+                    <div><span class="stock-name">海螺水泥</span><span class="stock-code">600585</span></div>
+                    <div class="stock-price">
+                        <div class="current profit-down">28.60</div>
+                        <div class="change change-down">-0.35%</div>
+                    </div>
+                </div>
+                <div class="ai-content" style="margin-bottom:6px;font-size:12px;">
+                    📊 基建复苏预期+低估值，PE仅8倍。技术面底部横盘蓄势，RSI超卖区。
+                </div>
+                <div style="display:flex;gap:12px;margin-bottom:4px;padding:6px 10px;background:rgba(74,105,189,0.08);border-radius:8px;">
+                    <div style="flex:1;text-align:center;">
+                        <div style="font-size:10px;color:#999;">目标价位</div>
+                        <div style="font-size:13px;font-weight:700;color:#ff4757;">34 - 40</div>
+                    </div>
+                    <div style="flex:1;text-align:center;">
+                        <div style="font-size:10px;color:#999;">预估上升空间</div>
+                        <div style="font-size:13px;font-weight:700;color:#ff4757;">+18.9% ~ +39.9%</div>
+                    </div>
+                </div>
+                <div class="confidence"><span class="conf-tag conf-mid">🟡 中置信 70%</span><button class="expand-btn">查看完整分析 ›</button></div>
+            </div>
+
+            <div style="font-size:10px;color:#bbb;margin-top:10px;text-align:center;">仅供学习参考，不构成投资依据</div>
+        </div>
+
+        <!-- 股票1 - 上涨 -->
+        <div class="stock-card">
+            <div class="stock-header">
+                <div><span class="stock-name">贵州茅台</span><span class="stock-code">600519</span></div>
+                <div class="stock-price">
+                    <div class="current profit-up">1,856.00</div>
+                    <div class="change change-up">+2.35%</div>
+                </div>
+            </div>
+            <div class="stock-info">
+                <div class="info-item"><div class="info-label">成本价</div><div class="info-value">1,680.00</div></div>
+                <div class="info-item"><div class="info-label">持有</div><div class="info-value">50股</div></div>
+                <div class="info-item"><div class="info-label">盈亏</div><div class="info-value profit-up">+8,800</div></div>
+                <div class="info-item"><div class="info-label">盈亏比</div><div class="info-value profit-up">+10.48%</div></div>
+            </div>
+            <div class="holding-duration">
+                <span>📅 已持仓 <b>45天</b></span>
+                <span class="estimate profit-up">📈 参考预估：持有30天收益区间5%-12%</span>
+            </div>
+            <div class="technical-indicators">
+                <div class="signal-row">
+                    <span class="signal-item signal-bullish">🟢 MA 多头排列，短期看多</span>
+                    <span class="signal-item signal-bullish">🟢 MACD 金叉，动能增强</span>
+                </div>
+                <div class="signal-row">
+                    <span class="signal-item signal-neutral">🟡 KDJ 高位，注意回调</span>
+                    <span class="signal-item signal-bullish">🟢 RSI 强势区</span>
+                </div>
+                <div class="signal-detail" onclick="this.classList.toggle('open')">
+                    <span class="detail-toggle">📊 查看原始数值 ›</span>
+                    <div class="detail-content">MA5:1,842 MA20:1,798 | MACD:+12.3 | KDJ:K78/D65/J104 | RSI6:68.5</div>
+                </div>
+            </div>
+            <div class="ai-analysis">
+                <div class="ai-tag">
+                    <span class="dot dot-green"></span>
+                    <span class="stage stage-up">🔥 主升浪中段</span>
+                    <span class="refresh-btn" onclick="alert('正在刷新AI分析...')">🔄 刷新</span>
+                </div>
+                <div class="ai-content">
+                    <span class="action">📊 参考方案：继续持有</span>，目标区间1,920-2,000。当前处于主升浪中段，量价配合良好。<br>
+                    💰 <b>利润仓（30%·15股）</b>：到达1,920可先出锁定利润<br>
+                    🏦 <b>底仓（70%·35股）</b>：继续持有看2,000目标价
+                </div>
+                <div class="confidence">
+                    <span class="conf-tag conf-mid">🟡 中置信 78% — 部分数据支撑，仅供参考</span>
+                    <button class="expand-btn" onclick="alert('展开完整推理过程：\n\n1. 技术面：MACD金叉，KDJ向上发散\n2. 基本面：Q3营收同比+15%\n3. 资金面：北向资金连续3日净买入\n4. 行业：白酒板块整体走强\n\n综合判断：主升浪中段，上方空间约8-12%')">查看推理 ›</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 股票2 - 震荡 -->
+        <div class="stock-card">
+            <div class="stock-header">
+                <div><span class="stock-name">宁德时代</span><span class="stock-code">300750</span></div>
+                <div class="stock-price">
+                    <div class="current profit-down">218.50</div>
+                    <div class="change change-down">-1.28%</div>
+                </div>
+            </div>
+            <div class="stock-info">
+                <div class="info-item"><div class="info-label">成本价</div><div class="info-value">230.00</div></div>
+                <div class="info-item"><div class="info-label">持有</div><div class="info-value">200股</div></div>
+                <div class="info-item"><div class="info-label">盈亏</div><div class="info-value profit-down">-2,300</div></div>
+                <div class="info-item"><div class="info-label">盈亏比</div><div class="info-value profit-down">-5.00%</div></div>
+            </div>
+            <div class="holding-duration">
+                <span>📅 已持仓 <b>30天</b></span>
+                <span class="estimate profit-down">⏳ 参考预估：预计2-4周可能回本</span>
+            </div>
+            <div class="technical-indicators">
+                <div class="signal-row">
+                    <span class="signal-item signal-bearish">🔴 MA 空头排列，短期偏弱</span>
+                    <span class="signal-item signal-bearish">🔴 MACD 死叉，动能减弱</span>
+                </div>
+                <div class="signal-row">
+                    <span class="signal-item signal-bullish">🟢 KDJ 超卖区，可能反弹</span>
+                    <span class="signal-item signal-neutral">🟡 RSI 弱势区</span>
+                </div>
+                <div class="signal-detail" onclick="this.classList.toggle('open')">
+                    <span class="detail-toggle">📊 查看原始数值 ›</span>
+                    <div class="detail-content">MA5:221.3 MA20:225.8 | MACD:-3.2 | KDJ:K32/D38/J20 | RSI6:38.2</div>
+                </div>
+            </div>
+            <div class="ai-analysis">
+                <div class="ai-tag">
+                    <span class="dot dot-yellow"></span>
+                    <span class="stage stage-hold">⏳ 底部震荡</span>
+                    <span class="refresh-btn">🔄 刷新</span>
+                </div>
+                <div class="ai-content">
+                    <span class="action">📊 参考方案：继续持有</span>，买入逻辑未变。行业短期承压但长期逻辑完好，关注下周储能政策会议，可能是催化剂。最坏情况预估：再跌5%至207附近有强支撑。
+                </div>
+                <div class="confidence">
+                    <span class="conf-tag conf-mid">🟡 中置信 65% — 部分数据支撑，仅供参考</span>
+                    <button class="expand-btn">查看推理 ›</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- 股票3 - 需要操作 -->
+        <div class="stock-card">
+            <div class="stock-header">
+                <div><span class="stock-name">比亚迪</span><span class="stock-code">002594</span></div>
+                <div class="stock-price">
+                    <div class="current profit-down">245.80</div>
+                    <div class="change change-down">-3.52%</div>
+                </div>
+            </div>
+            <div class="stock-info">
+                <div class="info-item"><div class="info-label">成本价</div><div class="info-value">260.00</div></div>
+                <div class="info-item"><div class="info-label">持有</div><div class="info-value">100股</div></div>
+                <div class="info-item"><div class="info-label">盈亏</div><div class="info-value profit-down">-1,420</div></div>
+                <div class="info-item"><div class="info-label">盈亏比</div><div class="info-value profit-down">-5.46%</div></div>
+            </div>
+            <div class="holding-duration">
+                <span>📅 已持仓 <b>18天</b></span>
+                <span class="estimate profit-down">⏳ 参考预估：若跌破支撑需重新评估</span>
+            </div>
+            <div class="technical-indicators">
+                <div class="signal-row">
+                    <span class="signal-item signal-bearish">🔴 MA 跌破均线，趋势转弱</span>
+                    <span class="signal-item signal-bearish">🔴 MACD 死叉加深，空头主导</span>
+                </div>
+                <div class="signal-row">
+                    <span class="signal-item signal-bearish">🔴 KDJ 超卖，但未见反转</span>
+                    <span class="signal-item signal-bearish">🔴 RSI 超卖区</span>
+                </div>
+                <div class="signal-detail" onclick="this.classList.toggle('open')">
+                    <span class="detail-toggle">📊 查看原始数值 ›</span>
+                    <div class="detail-content">MA5:250.6 MA20:258.3 | MACD:-5.8 | KDJ:K22/D30/J6 | RSI6:28.7</div>
+                </div>
+            </div>
+            <div class="ai-analysis">
+                <div class="ai-tag">
+                    <span class="dot dot-red"></span>
+                    <span class="stage stage-down">⚠️ 跌破支撑</span>
+                    <span class="refresh-btn">🔄 刷新</span>
+                </div>
+                <div class="risk-alert">⚠️ 量价背离：近3日成交量放大但股价持续下跌，警惕主力出货</div>
+                <div class="ai-content">
+                    <span class="action">📊 参考方案：减仓50%</span>，跌破关键支撑位250，买入逻辑已动摇。参考操作：先出50股（50%仓位），剩余50股观察3日，若不能收回250则清仓。
+                </div>
+                <div class="confidence">
+                    <span class="conf-tag conf-mid">🟡 中置信 72% — 部分数据支撑，仅供参考</span>
+                    <button class="expand-btn">查看推理 ›</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <button class="fab" onclick="showModal()">+</button>
+</div>
+
+<!-- 添加持仓弹窗 -->
+<div id="addModal" class="modal-overlay">
+    <div class="modal">
+        <h3>添加持仓</h3>
+        <input class="modal-input" placeholder="股票代码（如 600519）">
+        <input class="modal-input" placeholder="成本价（元）">
+        <input class="modal-input" placeholder="持有份额（股）">
+        <input class="modal-input" type="date" placeholder="买入时间">
+        <button class="modal-btn" onclick="hideModal()">确认添加</button>
+        <button class="modal-btn secondary" onclick="hideModal()">取消</button>
+    </div>
+</div>
+
+<!-- 对话页 -->
+<div id="chatPage" class="page chat-page">
+    <div class="chat-header">AI对话</div>
+    <div class="chat-messages">
+        <div class="chat-bubble ai">
+            <div class="bubble-content">你好，我是你的AI投资陪伴助手。有什么想了解的股票或投资问题，随时问我。</div>
+            <div class="time">09:30</div>
+        </div>
+        <div class="chat-bubble user">
+            <div class="bubble-content">比亚迪跌了不少，我要不要卖掉？</div>
+            <div class="time">10:15</div>
+        </div>
+        <div class="chat-bubble ai">
+            <div class="bubble-content">
+                我注意到你想卖出比亚迪，先帮你回顾一下：<br><br>
+                📋 <b>买入逻辑回顾</b><br>
+                你在260元买入，当时的逻辑是看好新能源车渗透率提升。<br><br>
+                🧠 <b>当前判断</b><br>
+                这次下跌主要是大盘系统性回调，比亚迪基本面没有恶化。你的卖出冲动更像是<span style="color:#ff9800;font-weight:600;">情绪驱动</span>而非逻辑变化。<br><br>
+                📉 <b>最坏情况预估</b><br>
+                如果继续下跌，230附近有强支撑（前期平台），最多再亏约6%。<br><br>
+                参考方案：可以先减仓50%降低焦虑，剩余仓位观察3天。
+            </div>
+            <div class="time">10:15</div>
+        </div>
+        <div class="chat-bubble user">
+            <div class="bubble-content">那茅台呢，现在还能加仓吗？</div>
+            <div class="time">10:20</div>
+        </div>
+        <div class="chat-bubble ai">
+            <div class="bubble-content">
+                贵州茅台当前1,856元，处于主升浪中段。<br><br>
+                📊 参考方案：当前位置不太适合追加仓位，因为短期涨幅已较大。如果回调到1,780-1,800区间，可以考虑分批加仓。<br><br>
+                置信度：72%
+            </div>
+            <div class="time">10:20</div>
+        </div>
+    </div>
+    <div class="chat-input-area">
+        <input class="chat-input" placeholder="输入你的问题...">
+        <button class="chat-send">发送</button>
+    </div>
+</div>
+
+<!-- 消息中心页 -->
+<div id="messagePage" class="page msg-page">
+    <div class="msg-header">消息中心</div>
+    <div class="msg-filters">
+        <div class="msg-filter active">全部</div>
+        <div class="msg-filter">每日关注</div>
+        <div class="msg-filter">定时分析</div>
+        <div class="msg-filter">波动提醒</div>
+        <div class="msg-filter">目标价提醒</div>
+        <div class="msg-filter">埋伏推荐</div>
+        <div class="msg-filter">自我修正</div>
+    </div>
+    <div class="msg-list">
+        <div class="msg-item msg-unread">
+            <span class="msg-type" style="background:#fff8e1;color:#f57f17;">🎯 目标价提醒</span>
+            <div class="msg-stock">贵州茅台 600519</div>
+            <div class="msg-summary">贵州茅台当前价1,856元，已接近目标价1,920（达到90%），可考虑分批出利润仓锁定收益。</div>
+            <div class="msg-time">今天 10:30</div>
+        </div>
+        <div class="msg-item msg-unread">
+            <span class="msg-type" style="background:#e8f5e9;color:#4a69bd;">🔍 每日关注</span>
+            <div class="msg-stock">中际旭创 / 招商银行 / 海螺水泥</div>
+            <div class="msg-summary">今日关注3只：短期-中际旭创（+7~18%）、中期-招商银行（+10~20%）、中长期-海螺水泥（+19~40%）。</div>
+            <div class="msg-time">今天 09:10</div>
+        </div>
+        <div class="msg-item msg-unread">
+            <span class="msg-type msg-type-alert">⚡ 波动提醒</span>
+            <div class="msg-stock">比亚迪 002594</div>
+            <div class="msg-summary">比亚迪跌幅超过3%，已触发AI分析。跌破关键支撑位250，参考方案：减仓50%。⚠️ 量价背离，主力出货信号明显，不宜加仓。</div>
+            <div class="msg-time">2分钟前</div>
+        </div>
+        <div class="msg-item msg-unread">
+            <span class="msg-type msg-type-analysis">📊 定时分析</span>
+            <div class="msg-stock">贵州茅台 600519</div>
+            <div class="msg-summary">贵州茅台处于主升浪中段，量价配合良好。参考方案：继续持有，目标区间1,920-2,000。</div>
+            <div class="msg-time">15分钟前</div>
+        </div>
+        <div class="msg-item">
+            <span class="msg-type msg-type-correction">🔄 自我修正</span>
+            <div class="msg-stock">宁德时代 300750</div>
+            <div class="msg-summary">上次分析预计本周反弹，实际继续震荡。修正原因：储能政策延迟发布。修正后参考方案：继续持有等待催化。</div>
+            <div class="msg-time">2小时前</div>
+        </div>
+        <div class="msg-item">
+            <span class="msg-type msg-type-analysis">📊 定时分析</span>
+            <div class="msg-stock">比亚迪 002594</div>
+            <div class="msg-summary">比亚迪处于高位盘整阶段，短期面临压力。参考方案：持有观察，关注250支撑位。</div>
+            <div class="msg-time">4小时前</div>
+        </div>
+        <div class="msg-item">
+            <span class="msg-type msg-type-alert">⚡ 波动提醒</span>
+            <div class="msg-stock">贵州茅台 600519</div>
+            <div class="msg-summary">贵州茅台涨幅超过3%，放量突破前高。参考方案：持有，进入主升浪信号确认。</div>
+            <div class="msg-time">昨天 14:30</div>
+        </div>
+        <div class="msg-item">
+            <span class="msg-type" style="background:#e3f2fd;color:#1565c0;">🏹 埋伏推荐</span>
+            <div class="msg-stock">中国平安 601318</div>
+            <div class="msg-summary">你已清仓万科A，为你筛选低位埋伏标的：中国平安当前42.5元，处于历史低位，PE仅7.8倍，股息率6.1%。参考买入区间40-43元，目标价52-58元，预估上升空间+22%~+36%。</div>
+            <div class="msg-time">昨天 10:00</div>
+        </div>
+    </div>
+</div>
+
+<!-- 我的页面 -->
+<div id="profilePage" class="page profile-page">
+    <div class="profile-header">
+        <div class="profile-avatar">👤</div>
+        <div class="profile-name">demo</div>
+    </div>
+    <div class="profile-menu">
+        <div class="menu-item">📊 历史参考记录 <span class="arrow">›</span></div>
+        <div class="menu-item">📈 AI准确率统计 <span class="arrow">›</span></div>
+        <div class="menu-item">⚙️ 分析设置 <span class="arrow">›</span></div>
+        <div class="menu-item">🔔 提醒设置 <span class="arrow">›</span></div>
+        <div class="menu-item">📱 关于 <span class="arrow">›</span></div>
+        <div class="menu-item" style="color:#ff4757;" onclick="showPage('login')">🚪 退出登录 <span class="arrow">›</span></div>
+    </div>
+</div>
+
+<!-- 底部导航 -->
+<div id="bottomNav" class="bottom-nav" style="display:none;">
+    <div class="nav-item active" onclick="showPage('dashboard')">
+        <span class="icon">📊</span>
+        <span class="label">看板</span>
+    </div>
+    <div class="nav-item" onclick="showPage('chat')">
+        <span class="icon">💬</span>
+        <span class="label">对话</span>
+    </div>
+    <div class="nav-item" onclick="showPage('message')">
+        <span class="icon">🔔</span>
+        <span class="label">消息</span>
+        <span class="badge">4</span>
+    </div>
+    <div class="nav-item" onclick="showPage('profile')">
+        <span class="icon">👤</span>
+        <span class="label">我的</span>
+    </div>
+</div>
+
+<script>
+function showPage(page) {
+    document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+    document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
+    const nav = document.getElementById('bottomNav');
+    
+    if (page === 'login') {
+        document.getElementById('loginPage').classList.add('active');
+        nav.style.display = 'none';
+        return;
+    }
+    
+    nav.style.display = 'flex';
+    const pageMap = { dashboard: 'dashboardPage', chat: 'chatPage', message: 'messagePage', profile: 'profilePage' };
+    const navIndex = { dashboard: 0, chat: 1, message: 2, profile: 3 };
+    
+    document.getElementById(pageMap[page]).classList.add('active');
+    document.querySelectorAll('.nav-item')[navIndex[page]].classList.add('active');
+}
+
+function showModal() {
+    document.getElementById('addModal').classList.add('show');
+}
+
+function hideModal() {
+    document.getElementById('addModal').classList.remove('show');
+}
+</script>
+</body>
+</html>
