@@ -7,6 +7,7 @@ import { getIndicators, getMarketHistory, IndicatorData, MarketHistoryRow } from
 import { detectRiskAlerts, RiskAlert } from '../indicators/riskDetectionService';
 import { getNews } from '../news/newsService';
 import { crossValidateConfidence } from './confidenceService';
+import { generateBatchPlan } from './batchPlanService';
 import { Errors } from '../errors/AppError';
 import { isValidStockCode } from '../positions/positionService';
 
@@ -242,6 +243,23 @@ export async function triggerAnalysis(
   const allRiskAlerts = [...existingRiskAlerts, ...crossValidation.warnings.filter(
     (w) => !existingRiskAlerts.includes(w)
   )];
+
+  // Generate batch plan for position-based analysis
+  if (context.positionData) {
+    const batchPlanResult = generateBatchPlan(
+      context.positionData,
+      context.marketData.price,
+      result
+    );
+    // Override AI batch plan with position-aware batch plan
+    result.batchPlan = batchPlanResult.batchPlan;
+    // Merge batch plan warnings into risk alerts
+    for (const w of batchPlanResult.warnings) {
+      if (!allRiskAlerts.includes(w)) {
+        allRiskAlerts.push(w);
+      }
+    }
+  }
 
   // Save to analyses table
   const now = new Date().toISOString();
