@@ -3,6 +3,7 @@ import cors from 'cors';
 import { errorHandler } from './middleware/errorHandler';
 import authRoutes from './auth/authRoutes';
 import positionRoutes from './positions/positionRoutes';
+import marketRoutes from './market/marketRoutes';
 
 const app = express();
 
@@ -15,6 +16,7 @@ app.get('/api/health', (_req, res) => {
 
 app.use('/api/auth', authRoutes);
 app.use('/api/positions', positionRoutes);
+app.use('/api/market', marketRoutes);
 
 // Global error handling middleware (must be registered after all routes)
 app.use(errorHandler);
