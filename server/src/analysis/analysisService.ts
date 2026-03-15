@@ -3,9 +3,10 @@ import { getDatabase } from '../db/connection';
 import { getAIProvider } from '../ai/aiProviderFactory';
 import { AnalysisContext, AnalysisResult } from '../ai/aiProvider';
 import { getQuote } from '../market/marketDataService';
-import { getIndicators } from '../indicators/indicatorService';
-import { detectRiskAlerts } from '../indicators/riskDetectionService';
+import { getIndicators, getMarketHistory, IndicatorData, MarketHistoryRow } from '../indicators/indicatorService';
+import { detectRiskAlerts, RiskAlert } from '../indicators/riskDetectionService';
 import { getNews } from '../news/newsService';
+import { crossValidateConfidence } from './confidenceService';
 import { Errors } from '../errors/AppError';
 import { isValidStockCode } from '../positions/positionService';
 
@@ -211,14 +212,36 @@ export async function triggerAnalysis(
   const provider = getAIProvider();
   const result: AnalysisResult = await provider.analyze(context);
 
-  // Get risk alerts for storage
-  let riskAlerts: string[] = [];
+  // Cross-validate confidence with technical indicators and risk alerts
+  let indicators: IndicatorData | null = null;
   try {
-    const alerts = detectRiskAlerts(stockCode, database);
-    riskAlerts = alerts.map((a) => a.label);
+    indicators = getIndicators(stockCode, database);
+  } catch {
+    // indicators not available
+  }
+
+  let riskAlertObjects: RiskAlert[] = [];
+  try {
+    riskAlertObjects = detectRiskAlerts(stockCode, database);
   } catch {
     // ignore
   }
+
+  let history: MarketHistoryRow[] = [];
+  try {
+    history = getMarketHistory(stockCode, database);
+  } catch {
+    // ignore
+  }
+
+  const crossValidation = crossValidateConfidence(result, indicators, riskAlertObjects, history);
+  result.confidence = crossValidation.adjustedConfidence;
+
+  // Merge cross-validation warnings into risk alerts
+  const existingRiskAlerts = riskAlertObjects.map((a) => a.label);
+  const allRiskAlerts = [...existingRiskAlerts, ...crossValidation.warnings.filter(
+    (w) => !existingRiskAlerts.includes(w)
+  )];
 
   // Save to analyses table
   const now = new Date().toISOString();
@@ -246,7 +269,7 @@ export async function triggerAnalysis(
     context.newsItems ? JSON.stringify(context.newsItems.map((n) => n.title)) : null,
     null, // recovery_estimate - handled by task 10.4
     null, // profit_estimate - handled by task 10.4
-    riskAlerts.length > 0 ? JSON.stringify(riskAlerts) : JSON.stringify(result.riskAlerts || []),
+    allRiskAlerts.length > 0 ? JSON.stringify(allRiskAlerts) : JSON.stringify(result.riskAlerts || []),
     now,
   );
 
