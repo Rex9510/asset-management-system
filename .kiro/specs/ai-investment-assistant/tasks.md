@@ -159,7 +159,7 @@
   - 确保行情数据、技术指标、新闻数据、持仓管理所有测试通过，如有问题请向用户确认。
 
 - [ ] 9. AI 接口抽象层
-  - [~] 9.1 实现 AI Provider 抽象层与工厂模式
+  - [x] 9.1 实现 AI Provider 抽象层与工厂模式
     - 定义 AIProvider 接口：`analyze()`, `chat()`, `getModelName()`
     - 实现 DeepSeekProvider（默认）、ClaudeProvider、QwenProvider
     - AIProviderFactory：根据 `ai.config.json` 配置创建 Provider 实例
