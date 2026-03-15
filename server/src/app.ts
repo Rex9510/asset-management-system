@@ -6,6 +6,7 @@ import positionRoutes from './positions/positionRoutes';
 import marketRoutes from './market/marketRoutes';
 import indicatorRoutes from './indicators/indicatorRoutes';
 import newsRoutes from './news/newsRoutes';
+import analysisRoutes from './analysis/analysisRoutes';
 
 const app = express();
 
@@ -21,6 +22,7 @@ app.use('/api/positions', positionRoutes);
 app.use('/api/market', marketRoutes);
 app.use('/api/indicators', indicatorRoutes);
 app.use('/api/news', newsRoutes);
+app.use('/api/analysis', analysisRoutes);
 
 // Global error handling middleware (must be registered after all routes)
 app.use(errorHandler);
