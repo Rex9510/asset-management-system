@@ -95,7 +95,7 @@
     - `GET /api/market/quote/:code`：单只股票行情查询
     - _需求：2.1, 2.3, 2.4_
 
-  - [ ] 5.2 实现 SSE 行情推送
+  - [x] 5.2 实现 SSE 行情推送
     - `GET /api/market/sse`：Server-Sent Events 实时推送行情数据
     - 3-5秒轮询间隔，仅推送用户持仓股票的行情
     - 用户离开页面时断开 SSE 连接，停止拉取
