@@ -8,6 +8,7 @@ import { detectRiskAlerts, RiskAlert } from '../indicators/riskDetectionService'
 import { getNews } from '../news/newsService';
 import { crossValidateConfidence } from './confidenceService';
 import { generateBatchPlan } from './batchPlanService';
+import { estimateRecovery, estimateProfit } from './estimateService';
 import { Errors } from '../errors/AppError';
 import { isValidStockCode } from '../positions/positionService';
 
@@ -261,6 +262,34 @@ export async function triggerAnalysis(
     }
   }
 
+  // Generate recovery/profit estimates for positions
+  let recoveryEstimateJson: string | null = null;
+  let profitEstimateJson: string | null = null;
+
+  if (context.positionData) {
+    const profitPercent = ((context.marketData.price - context.positionData.costPrice) / context.positionData.costPrice) * 100;
+
+    if (profitPercent < 0) {
+      // Losing position → recovery estimate
+      const recovery = estimateRecovery(
+        context.positionData.costPrice,
+        context.marketData.price,
+        indicators,
+        history
+      );
+      recoveryEstimateJson = JSON.stringify(recovery);
+    } else {
+      // Profitable position → profit estimate
+      const profit = estimateProfit(
+        context.positionData.costPrice,
+        context.marketData.price,
+        indicators,
+        history
+      );
+      profitEstimateJson = JSON.stringify(profit);
+    }
+  }
+
   // Save to analyses table
   const now = new Date().toISOString();
   const insertResult = database.prepare(
@@ -285,8 +314,8 @@ export async function triggerAnalysis(
     JSON.stringify(['market_data', 'technical_indicators', ...(context.newsItems ? ['news'] : [])]),
     JSON.stringify(context.technicalIndicators),
     context.newsItems ? JSON.stringify(context.newsItems.map((n) => n.title)) : null,
-    null, // recovery_estimate - handled by task 10.4
-    null, // profit_estimate - handled by task 10.4
+    recoveryEstimateJson,
+    profitEstimateJson,
     allRiskAlerts.length > 0 ? JSON.stringify(allRiskAlerts) : JSON.stringify(result.riskAlerts || []),
     now,
   );
