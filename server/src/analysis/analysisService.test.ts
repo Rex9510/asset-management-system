@@ -60,10 +60,12 @@ function setupTestDb() {
   testDb.pragma('foreign_keys = ON');
   initializeDatabase(testDb);
 
-  // Create a test user
+  // Create a test user with 60-day-old account (trust level 3) to avoid cold-start records
+  const sixtyDaysAgo = new Date();
+  sixtyDaysAgo.setDate(sixtyDaysAgo.getDate() - 60);
   testDb.prepare(
     "INSERT INTO users (username, password_hash, created_at) VALUES (?, ?, ?)"
-  ).run('testuser', 'hash', new Date().toISOString());
+  ).run('testuser', 'hash', sixtyDaysAgo.toISOString());
 }
 
 function seedMarketHistory(stockCode: string) {
@@ -226,10 +228,12 @@ describe('analysisService', () => {
     });
 
     it('should only return analyses for the specified user', async () => {
-      // Create second user
+      // Create second user with old account to avoid cold-start records
+      const sixtyDaysAgo = new Date();
+      sixtyDaysAgo.setDate(sixtyDaysAgo.getDate() - 60);
       testDb.prepare(
         "INSERT INTO users (username, password_hash, created_at) VALUES (?, ?, ?)"
-      ).run('otheruser', 'hash', new Date().toISOString());
+      ).run('otheruser', 'hash', sixtyDaysAgo.toISOString());
 
       await triggerAnalysis('600000', 1, 'manual', testDb);
       await triggerAnalysis('600000', 2, 'manual', testDb);

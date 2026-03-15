@@ -68,6 +68,12 @@ describe('Analysis Routes', () => {
     app = createApp();
     token = await registerAndGetToken(app);
 
+    // Make the test user an "old" user (60 days) to avoid cold-start records from trust service
+    const sixtyDaysAgo = new Date();
+    sixtyDaysAgo.setDate(sixtyDaysAgo.getDate() - 60);
+    testDb.prepare('UPDATE users SET created_at = ? WHERE username = ?')
+      .run(sixtyDaysAgo.toISOString(), 'testuser');
+
     mockAnalyze.mockResolvedValue({
       stage: 'rising',
       spaceEstimate: '上方空间约10%',
@@ -185,8 +191,12 @@ describe('Analysis Routes', () => {
         .set('Authorization', `Bearer ${token}`)
         .send({ stockCode: '600000' });
 
-      // Register second user
+      // Register second user and make them old too
       const otherToken = await registerAndGetToken(app, 'otheruser');
+      const sixtyDaysAgo = new Date();
+      sixtyDaysAgo.setDate(sixtyDaysAgo.getDate() - 60);
+      testDb.prepare('UPDATE users SET created_at = ? WHERE username = ?')
+        .run(sixtyDaysAgo.toISOString(), 'otheruser');
 
       const res = await request(app)
         .get('/api/analysis/600000')

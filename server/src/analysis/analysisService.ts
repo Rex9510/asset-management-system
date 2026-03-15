@@ -9,6 +9,7 @@ import { getNews } from '../news/newsService';
 import { crossValidateConfidence } from './confidenceService';
 import { generateBatchPlan } from './batchPlanService';
 import { estimateRecovery, estimateProfit } from './estimateService';
+import { getUserTrustLevel, filterActionByTrust, isNewUser, generateColdStartRecords } from './trustService';
 import { Errors } from '../errors/AppError';
 import { isValidStockCode } from '../positions/positionService';
 
@@ -244,6 +245,15 @@ export async function triggerAnalysis(
   const allRiskAlerts = [...existingRiskAlerts, ...crossValidation.warnings.filter(
     (w) => !existingRiskAlerts.includes(w)
   )];
+
+  // Apply progressive trust strategy: filter actionRef based on user trust level
+  const trustLevel = getUserTrustLevel(userId, database);
+  result.actionRef = filterActionByTrust(result.actionRef, trustLevel);
+
+  // Generate cold-start backtest records for new users
+  if (isNewUser(userId, database) && context.stockName) {
+    generateColdStartRecords(userId, stockCode, context.stockName, database);
+  }
 
   // Generate batch plan for position-based analysis
   if (context.positionData) {
