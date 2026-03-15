@@ -118,4 +118,54 @@ describe('Indicator Routes', () => {
       expect(res.body.ma.ma60).toBeNull(); // Not enough data
     });
   });
+
+  describe('GET /api/indicators/:stockCode/risks', () => {
+    it('should return 401 without auth', async () => {
+      const res = await request(app).get('/api/indicators/600000/risks');
+      expect(res.status).toBe(401);
+    });
+
+    it('should return 400 for invalid stock code', async () => {
+      const res = await request(app)
+        .get('/api/indicators/999999/risks')
+        .set('Authorization', `Bearer ${token}`);
+      expect(res.status).toBe(400);
+    });
+
+    it('should return empty alerts when no market history', async () => {
+      const res = await request(app)
+        .get('/api/indicators/600000/risks')
+        .set('Authorization', `Bearer ${token}`);
+      expect(res.status).toBe(200);
+      expect(res.body.stockCode).toBe('600000');
+      expect(res.body.alerts).toEqual([]);
+    });
+
+    it('should return risk alerts with correct structure', async () => {
+      // Insert data that triggers volume divergence
+      const stmt = testDb.prepare(
+        `INSERT INTO market_history (stock_code, trade_date, open_price, close_price, high_price, low_price, volume)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`
+      );
+      for (let i = 0; i < 5; i++) {
+        stmt.run('600000', `2024-01-0${i + 1}`, 10, 10, 10.2, 9.8, 1000000);
+      }
+      // Day 6: volume up 20%, price drops
+      stmt.run('600000', '2024-01-06', 10, 9.8, 10.1, 9.7, 1200000);
+
+      const res = await request(app)
+        .get('/api/indicators/600000/risks')
+        .set('Authorization', `Bearer ${token}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.stockCode).toBe('600000');
+      expect(Array.isArray(res.body.alerts)).toBe(true);
+      for (const alert of res.body.alerts) {
+        expect(alert).toHaveProperty('type');
+        expect(alert).toHaveProperty('level');
+        expect(alert).toHaveProperty('label');
+        expect(alert).toHaveProperty('description');
+      }
+    });
+  });
 });

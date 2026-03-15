@@ -1,6 +1,7 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { authMiddleware } from '../middleware/authMiddleware';
 import { getIndicators } from './indicatorService';
+import { detectRiskAlerts } from './riskDetectionService';
 
 const router = Router();
 
@@ -13,6 +14,17 @@ router.get('/:stockCode', (req: Request, res: Response, next: NextFunction) => {
     const stockCode = req.params.stockCode as string;
     const indicators = getIndicators(stockCode);
     res.json(indicators);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// GET /api/indicators/:stockCode/risks - Get risk alerts for suspicious patterns
+router.get('/:stockCode/risks', (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const stockCode = req.params.stockCode as string;
+    const alerts = detectRiskAlerts(stockCode);
+    res.json({ stockCode, alerts });
   } catch (err) {
     next(err);
   }
