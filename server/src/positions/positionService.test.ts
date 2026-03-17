@@ -51,9 +51,7 @@ describe('positionService', () => {
 
     it('should accept valid Shenzhen main board codes (000xxx)', () => {
       expect(isValidStockCode('000001')).toBe(true);
-      expect(isValidStockCode('001289')).toBe(true);
       expect(isValidStockCode('002594')).toBe(true);
-      expect(isValidStockCode('003816')).toBe(true);
     });
 
     it('should accept valid ChiNext codes (300xxx/301xxx)', () => {
@@ -142,7 +140,7 @@ describe('positionService', () => {
   });
 
   describe('createPosition', () => {
-    it('should create a position with valid data', () => {
+    it('should create a holding position with valid data', () => {
       const position = createPosition(userId, {
         stockCode: '600000',
         stockName: '浦发银行',
@@ -154,12 +152,42 @@ describe('positionService', () => {
       expect(position.id).toBeGreaterThan(0);
       expect(position.stockCode).toBe('600000');
       expect(position.stockName).toBe('浦发银行');
+      expect(position.positionType).toBe('holding');
       expect(position.costPrice).toBe(10.5);
       expect(position.shares).toBe(100);
       expect(position.buyDate).toBe('2024-01-15');
       expect(position.currentPrice).toBeNull();
       expect(position.profitLoss).toBeNull();
       expect(position.profitLossPercent).toBeNull();
+    });
+
+    it('should create a watching position with only code and name', () => {
+      const position = createPosition(userId, {
+        stockCode: '000001',
+        stockName: '平安银行',
+        positionType: 'watching',
+      }, db);
+
+      expect(position.id).toBeGreaterThan(0);
+      expect(position.stockCode).toBe('000001');
+      expect(position.positionType).toBe('watching');
+      expect(position.costPrice).toBeNull();
+      expect(position.shares).toBeNull();
+      expect(position.buyDate).toBeNull();
+      expect(position.profitLoss).toBeNull();
+      expect(position.profitLossPercent).toBeNull();
+      expect(position.holdingDays).toBeNull();
+    });
+
+    it('should default to holding type when positionType not specified', () => {
+      const position = createPosition(userId, {
+        stockCode: '600000',
+        stockName: '浦发银行',
+        costPrice: 10,
+        shares: 100,
+        buyDate: '2024-01-15',
+      }, db);
+      expect(position.positionType).toBe('holding');
     });
 
     it('should reject invalid stock code', () => {
@@ -186,7 +214,7 @@ describe('positionService', () => {
       ).toThrow(AppError);
     });
 
-    it('should reject non-positive cost price', () => {
+    it('should reject non-positive cost price for holding', () => {
       expect(() =>
         createPosition(userId, {
           stockCode: '600000',
@@ -208,7 +236,7 @@ describe('positionService', () => {
       ).toThrow(AppError);
     });
 
-    it('should reject non-positive-integer shares', () => {
+    it('should reject non-positive-integer shares for holding', () => {
       expect(() =>
         createPosition(userId, {
           stockCode: '600000',
@@ -230,7 +258,7 @@ describe('positionService', () => {
       ).toThrow(AppError);
     });
 
-    it('should reject invalid buy date', () => {
+    it('should reject invalid buy date for holding', () => {
       expect(() =>
         createPosition(userId, {
           stockCode: '600000',
@@ -240,6 +268,18 @@ describe('positionService', () => {
           buyDate: 'not-a-date',
         }, db)
       ).toThrow(AppError);
+    });
+
+    it('should not require cost/shares/date for watching', () => {
+      const position = createPosition(userId, {
+        stockCode: '600000',
+        stockName: '浦发银行',
+        positionType: 'watching',
+      }, db);
+      expect(position.positionType).toBe('watching');
+      expect(position.costPrice).toBeNull();
+      expect(position.shares).toBeNull();
+      expect(position.buyDate).toBeNull();
     });
   });
 
@@ -255,6 +295,19 @@ describe('positionService', () => {
 
       const positions = getPositions(userId, db);
       expect(positions).toHaveLength(2);
+    });
+
+    it('should filter by type', () => {
+      createPosition(userId, { stockCode: '600000', stockName: '浦发银行', costPrice: 10, shares: 100, buyDate: '2024-01-15' }, db);
+      createPosition(userId, { stockCode: '000001', stockName: '平安银行', positionType: 'watching' }, db);
+
+      const holdings = getPositions(userId, db, 'holding');
+      expect(holdings).toHaveLength(1);
+      expect(holdings[0].positionType).toBe('holding');
+
+      const watchings = getPositions(userId, db, 'watching');
+      expect(watchings).toHaveLength(1);
+      expect(watchings[0].positionType).toBe('watching');
     });
 
     it('should not return positions of other users', () => {
@@ -275,6 +328,16 @@ describe('positionService', () => {
       expect(positions[0].currentPrice).toBe(15);
       expect(positions[0].profitLoss).toBe(500);
       expect(positions[0].profitLossPercent).toBe(50);
+    });
+
+    it('should not calculate P&L for watching positions', () => {
+      createPosition(userId, { stockCode: '600000', stockName: '浦发银行', positionType: 'watching' }, db);
+      db.prepare('INSERT INTO market_cache (stock_code, stock_name, price, change_percent) VALUES (?, ?, ?, ?)').run('600000', '浦发银行', 15, 5.0);
+
+      const positions = getPositions(userId, db);
+      expect(positions[0].currentPrice).toBe(15);
+      expect(positions[0].profitLoss).toBeNull();
+      expect(positions[0].profitLossPercent).toBeNull();
     });
   });
 

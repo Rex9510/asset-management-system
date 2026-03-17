@@ -5,6 +5,7 @@ import {
   createPosition,
   updatePosition,
   deletePosition,
+  PositionType,
 } from './positionService';
 
 const router = Router();
@@ -16,7 +17,12 @@ router.use(authMiddleware);
 router.get('/', (req: Request, res: Response, next: NextFunction) => {
   try {
     const userId = req.user!.id;
-    const positions = getPositions(userId);
+    const type = req.query.type as PositionType | undefined;
+    if (type && type !== 'holding' && type !== 'watching') {
+      res.status(400).json({ error: { code: 'BAD_REQUEST', message: '无效的类型，可选值：holding, watching' } });
+      return;
+    }
+    const positions = getPositions(userId, undefined, type);
     res.json({ positions });
   } catch (err) {
     next(err);
@@ -27,8 +33,8 @@ router.get('/', (req: Request, res: Response, next: NextFunction) => {
 router.post('/', (req: Request, res: Response, next: NextFunction) => {
   try {
     const userId = req.user!.id;
-    const { stockCode, stockName, costPrice, shares, buyDate } = req.body;
-    const position = createPosition(userId, { stockCode, stockName, costPrice, shares, buyDate });
+    const { stockCode, stockName, costPrice, shares, buyDate, positionType } = req.body;
+    const position = createPosition(userId, { stockCode, stockName, costPrice, shares, buyDate, positionType });
     res.status(201).json({ position });
   } catch (err) {
     next(err);

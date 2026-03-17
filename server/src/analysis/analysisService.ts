@@ -158,7 +158,7 @@ export async function buildAnalysisContext(
   let positionData: AnalysisContext['positionData'] | undefined;
   try {
     const posRow = database
-      .prepare('SELECT cost_price, shares, buy_date FROM positions WHERE user_id = ? AND stock_code = ? LIMIT 1')
+      .prepare('SELECT cost_price, shares, buy_date FROM positions WHERE user_id = ? AND stock_code = ? AND position_type = \'holding\' LIMIT 1')
       .get(userId, stockCode) as { cost_price: number; shares: number; buy_date: string } | undefined;
     if (posRow) {
       positionData = {

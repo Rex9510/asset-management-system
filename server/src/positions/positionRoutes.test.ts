@@ -76,11 +76,58 @@ describe('Position Routes', () => {
       expect(res.status).toBe(200);
       expect(res.body.positions).toHaveLength(1);
       expect(res.body.positions[0].stockCode).toBe('600000');
+      expect(res.body.positions[0].positionType).toBe('holding');
+    });
+
+    it('should filter by type=holding', async () => {
+      await request(app)
+        .post('/api/positions')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ stockCode: '600000', stockName: '浦发银行', costPrice: 10, shares: 100, buyDate: '2024-01-15' });
+      await request(app)
+        .post('/api/positions')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ stockCode: '000001', stockName: '平安银行', positionType: 'watching' });
+
+      const res = await request(app)
+        .get('/api/positions?type=holding')
+        .set('Authorization', `Bearer ${token}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.positions).toHaveLength(1);
+      expect(res.body.positions[0].positionType).toBe('holding');
+    });
+
+    it('should filter by type=watching', async () => {
+      await request(app)
+        .post('/api/positions')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ stockCode: '600000', stockName: '浦发银行', costPrice: 10, shares: 100, buyDate: '2024-01-15' });
+      await request(app)
+        .post('/api/positions')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ stockCode: '000001', stockName: '平安银行', positionType: 'watching' });
+
+      const res = await request(app)
+        .get('/api/positions?type=watching')
+        .set('Authorization', `Bearer ${token}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.positions).toHaveLength(1);
+      expect(res.body.positions[0].positionType).toBe('watching');
+    });
+
+    it('should return 400 for invalid type', async () => {
+      const res = await request(app)
+        .get('/api/positions?type=invalid')
+        .set('Authorization', `Bearer ${token}`);
+
+      expect(res.status).toBe(400);
     });
   });
 
   describe('POST /api/positions', () => {
-    it('should create a position with valid data', async () => {
+    it('should create a holding position with valid data', async () => {
       const res = await request(app)
         .post('/api/positions')
         .set('Authorization', `Bearer ${token}`)
@@ -88,11 +135,26 @@ describe('Position Routes', () => {
 
       expect(res.status).toBe(201);
       expect(res.body.position.stockCode).toBe('600000');
-      expect(res.body.position.stockName).toBe('浦发银行');
+      expect(res.body.position.positionType).toBe('holding');
       expect(res.body.position.costPrice).toBe(10.5);
       expect(res.body.position.shares).toBe(100);
       expect(res.body.position.buyDate).toBe('2024-01-15');
       expect(res.body.position.holdingDays).toBeGreaterThanOrEqual(0);
+    });
+
+    it('should create a watching position', async () => {
+      const res = await request(app)
+        .post('/api/positions')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ stockCode: '000001', stockName: '平安银行', positionType: 'watching' });
+
+      expect(res.status).toBe(201);
+      expect(res.body.position.stockCode).toBe('000001');
+      expect(res.body.position.positionType).toBe('watching');
+      expect(res.body.position.costPrice).toBeNull();
+      expect(res.body.position.shares).toBeNull();
+      expect(res.body.position.buyDate).toBeNull();
+      expect(res.body.position.holdingDays).toBeNull();
     });
 
     it('should reject invalid stock code', async () => {
@@ -186,8 +248,8 @@ describe('Position Routes', () => {
 
       expect(res.status).toBe(200);
       expect(res.body.position.currentPrice).toBe(15);
-      expect(res.body.position.profitLoss).toBe(300); // (15-12)*100
-      expect(res.body.position.profitLossPercent).toBeCloseTo(25); // (15-12)/12*100
+      expect(res.body.position.profitLoss).toBe(300);
+      expect(res.body.position.profitLossPercent).toBeCloseTo(25);
     });
 
     it('should return 404 for non-existent position', async () => {
@@ -229,7 +291,6 @@ describe('Position Routes', () => {
       expect(res.status).toBe(200);
       expect(res.body.success).toBe(true);
 
-      // Verify it's gone
       const getRes = await request(app)
         .get('/api/positions')
         .set('Authorization', `Bearer ${token}`);

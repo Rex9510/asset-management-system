@@ -166,7 +166,7 @@ export async function evaluateCalmDown(
 
   // Get position info for context
   const position = database.prepare(
-    'SELECT stock_code, stock_name, cost_price, shares, buy_date FROM positions WHERE user_id = ? AND stock_code = ? LIMIT 1'
+    'SELECT stock_code, stock_name, cost_price, shares, buy_date FROM positions WHERE user_id = ? AND stock_code = ? AND position_type = \'holding\' LIMIT 1'
   ).get(userId, stockCode.trim()) as {
     stock_code: string;
     stock_name: string;

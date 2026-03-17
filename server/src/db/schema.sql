@@ -8,15 +8,16 @@ CREATE TABLE IF NOT EXISTS users (
     locked_until DATETIME NULL
 );
 
--- 持仓表
+-- 持仓/关注表
 CREATE TABLE IF NOT EXISTS positions (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     user_id INTEGER NOT NULL,
     stock_code TEXT NOT NULL,
     stock_name TEXT NOT NULL,
-    cost_price REAL NOT NULL,
-    shares INTEGER NOT NULL,
-    buy_date DATE NOT NULL,
+    position_type TEXT NOT NULL DEFAULT 'holding' CHECK(position_type IN ('holding', 'watching')),
+    cost_price REAL,
+    shares INTEGER,
+    buy_date DATE,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users(id)

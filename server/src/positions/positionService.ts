@@ -12,14 +12,17 @@ const VALID_STOCK_PREFIXES = [
 
 const STOCK_CODE_REGEX = /^\d{6}$/;
 
+export type PositionType = 'holding' | 'watching';
+
 export interface PositionRow {
   id: number;
   user_id: number;
   stock_code: string;
   stock_name: string;
-  cost_price: number;
-  shares: number;
-  buy_date: string;
+  position_type: PositionType;
+  cost_price: number | null;
+  shares: number | null;
+  buy_date: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -29,13 +32,14 @@ export interface PositionResponse {
   userId: number;
   stockCode: string;
   stockName: string;
-  costPrice: number;
-  shares: number;
-  buyDate: string;
+  positionType: PositionType;
+  costPrice: number | null;
+  shares: number | null;
+  buyDate: string | null;
   currentPrice: number | null;
   profitLoss: number | null;
   profitLossPercent: number | null;
-  holdingDays: number;
+  holdingDays: number | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -43,9 +47,10 @@ export interface PositionResponse {
 export interface CreatePositionInput {
   stockCode: string;
   stockName: string;
-  costPrice: number;
-  shares: number;
-  buyDate: string;
+  positionType?: PositionType;
+  costPrice?: number;
+  shares?: number;
+  buyDate?: string;
 }
 
 export interface UpdatePositionInput {
@@ -69,7 +74,6 @@ export function isValidDate(dateStr: string): boolean {
   if (!/^\d{4}-\d{2}-\d{2}$/.test(dateStr)) return false;
   const date = new Date(dateStr + 'T00:00:00Z');
   if (isNaN(date.getTime())) return false;
-  // Verify the parsed date matches the input (catches invalid dates like 2024-02-30)
   const [y, m, d] = dateStr.split('-').map(Number);
   return date.getUTCFullYear() === y && date.getUTCMonth() + 1 === m && date.getUTCDate() === d;
 }
@@ -100,40 +104,43 @@ export function calculateProfitLossPercent(costPrice: number, currentPrice: numb
 }
 
 function toPositionResponse(row: PositionRow, currentPrice: number | null): PositionResponse {
+  const isHolding = row.position_type === 'holding' && row.cost_price != null && row.shares != null;
   return {
     id: row.id,
     userId: row.user_id,
     stockCode: row.stock_code,
     stockName: row.stock_name,
+    positionType: row.position_type,
     costPrice: row.cost_price,
     shares: row.shares,
     buyDate: row.buy_date,
     currentPrice,
-    profitLoss: currentPrice != null ? calculateProfitLoss(row.cost_price, row.shares, currentPrice) : null,
-    profitLossPercent: currentPrice != null ? calculateProfitLossPercent(row.cost_price, currentPrice) : null,
-    holdingDays: calculateHoldingDays(row.buy_date),
+    profitLoss: isHolding && currentPrice != null ? calculateProfitLoss(row.cost_price!, row.shares!, currentPrice) : null,
+    profitLossPercent: isHolding && currentPrice != null ? calculateProfitLossPercent(row.cost_price!, currentPrice) : null,
+    holdingDays: row.buy_date ? calculateHoldingDays(row.buy_date) : null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
 }
 
-/**
- * Try to get current price from market_cache table.
- */
 function getCurrentPrice(db: Database.Database, stockCode: string): number | null {
   const row = db.prepare('SELECT price FROM market_cache WHERE stock_code = ?').get(stockCode) as { price: number } | undefined;
   return row ? row.price : null;
 }
 
 /**
- * Get all positions for a user.
+ * Get all positions for a user, optionally filtered by type.
  */
-export function getPositions(userId: number, db?: Database.Database): PositionResponse[] {
+export function getPositions(userId: number, db?: Database.Database, type?: PositionType): PositionResponse[] {
   const database = db || getDatabase();
-  const rows = database
-    .prepare('SELECT * FROM positions WHERE user_id = ? ORDER BY created_at DESC')
-    .all(userId) as PositionRow[];
-
+  let sql = 'SELECT * FROM positions WHERE user_id = ?';
+  const params: (number | string)[] = [userId];
+  if (type) {
+    sql += ' AND position_type = ?';
+    params.push(type);
+  }
+  sql += ' ORDER BY created_at DESC';
+  const rows = database.prepare(sql).all(...params) as PositionRow[];
   return rows.map((row) => {
     const currentPrice = getCurrentPrice(database, row.stock_code);
     return toPositionResponse(row, currentPrice);
@@ -148,18 +155,17 @@ export function getPositionById(id: number, userId: number, db?: Database.Databa
   const row = database
     .prepare('SELECT * FROM positions WHERE id = ? AND user_id = ?')
     .get(id, userId) as PositionRow | undefined;
-
   if (!row) return null;
-
   const currentPrice = getCurrentPrice(database, row.stock_code);
   return toPositionResponse(row, currentPrice);
 }
 
 /**
- * Create a new position.
+ * Create a new position (holding or watching).
  */
 export function createPosition(userId: number, input: CreatePositionInput, db?: Database.Database): PositionResponse {
   const database = db || getDatabase();
+  const positionType: PositionType = input.positionType || 'holding';
 
   // Validate stock code
   if (!input.stockCode || !isValidStockCode(input.stockCode)) {
@@ -171,28 +177,30 @@ export function createPosition(userId: number, input: CreatePositionInput, db?: 
     throw Errors.badRequest('股票名称不能为空');
   }
 
-  // Validate cost price
-  if (input.costPrice == null || typeof input.costPrice !== 'number' || input.costPrice <= 0) {
-    throw Errors.badRequest('成本价必须为正数');
-  }
-
-  // Validate shares
-  if (input.shares == null || !Number.isInteger(input.shares) || input.shares <= 0) {
-    throw Errors.badRequest('份额必须为正整数');
-  }
-
-  // Validate buy date
-  if (!input.buyDate || !isValidDate(input.buyDate)) {
-    throw Errors.badRequest('买入日期格式无效，请使用YYYY-MM-DD格式');
+  if (positionType === 'holding') {
+    // Holding requires cost_price, shares, buy_date
+    if (input.costPrice == null || typeof input.costPrice !== 'number' || input.costPrice <= 0) {
+      throw Errors.badRequest('成本价必须为正数');
+    }
+    if (input.shares == null || !Number.isInteger(input.shares) || input.shares <= 0) {
+      throw Errors.badRequest('份额必须为正整数');
+    }
+    if (!input.buyDate || !isValidDate(input.buyDate)) {
+      throw Errors.badRequest('买入日期格式无效，请使用YYYY-MM-DD格式');
+    }
   }
 
   const now = new Date().toISOString();
+  const costPrice = positionType === 'holding' ? input.costPrice! : (input.costPrice ?? null);
+  const shares = positionType === 'holding' ? input.shares! : (input.shares ?? null);
+  const buyDate = positionType === 'holding' ? input.buyDate! : (input.buyDate ?? null);
+
   const result = database
     .prepare(
-      `INSERT INTO positions (user_id, stock_code, stock_name, cost_price, shares, buy_date, created_at, updated_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT INTO positions (user_id, stock_code, stock_name, position_type, cost_price, shares, buy_date, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
     )
-    .run(userId, input.stockCode, input.stockName.trim(), input.costPrice, input.shares, input.buyDate, now, now);
+    .run(userId, input.stockCode, input.stockName.trim(), positionType, costPrice, shares, buyDate, now, now);
 
   const id = result.lastInsertRowid as number;
   return getPositionById(id, userId, database)!;
@@ -212,14 +220,12 @@ export function updatePosition(id: number, userId: number, input: UpdatePosition
     throw Errors.notFound('持仓记录不存在');
   }
 
-  // Validate cost price if provided
   if (input.costPrice !== undefined) {
     if (typeof input.costPrice !== 'number' || input.costPrice <= 0) {
       throw Errors.badRequest('成本价必须为正数');
     }
   }
 
-  // Validate shares if provided
   if (input.shares !== undefined) {
     if (!Number.isInteger(input.shares) || input.shares <= 0) {
       throw Errors.badRequest('份额必须为正整数');
