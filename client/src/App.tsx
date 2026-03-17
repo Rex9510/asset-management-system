@@ -1,5 +1,10 @@
 import { Routes, Route, Navigate } from 'react-router-dom';
 import LoginPage from './pages/LoginPage';
+import DashboardPage from './pages/DashboardPage';
+import ChatPage from './pages/ChatPage';
+import MessageCenterPage from './pages/MessageCenterPage';
+import ProfilePage from './pages/ProfilePage';
+import MainLayout from './components/MainLayout';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const token = localStorage.getItem('token');
@@ -9,28 +14,24 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   return <>{children}</>;
 }
 
-function HomePage() {
-  return (
-    <div style={{ padding: '20px', textAlign: 'center' }}>
-      <h1>AI智能投资陪伴助手</h1>
-      <p>应用加载成功</p>
-    </div>
-  );
-}
-
 function App() {
   return (
     <Routes>
       <Route path="/login" element={<LoginPage />} />
       <Route
-        path="/"
         element={
           <ProtectedRoute>
-            <HomePage />
+            <MainLayout />
           </ProtectedRoute>
         }
-      />
-      <Route path="*" element={<Navigate to="/" replace />} />
+      >
+        <Route path="/dashboard" element={<DashboardPage />} />
+        <Route path="/chat" element={<ChatPage />} />
+        <Route path="/messages" element={<MessageCenterPage />} />
+        <Route path="/profile" element={<ProfilePage />} />
+      </Route>
+      <Route path="/" element={<Navigate to="/dashboard" replace />} />
+      <Route path="*" element={<Navigate to="/dashboard" replace />} />
     </Routes>
   );
 }
