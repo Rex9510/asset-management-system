@@ -346,7 +346,7 @@
     - **验证需求：5.2**
 
 - [ ] 17. 消息中心模块
-  - [ ] 17.1 实现消息中心 API
+  - [x] 17.1 实现消息中心 API
     - `GET /api/messages?type=&page=&limit=20`：分页查询，按时间倒序
     - `GET /api/messages/:id`：查看消息详情，标记已读
     - 支持按类型筛选：scheduled_analysis, volatility_alert, self_correction, daily_pick, target_price_alert, ambush_recommendation

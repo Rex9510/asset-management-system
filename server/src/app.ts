@@ -9,6 +9,7 @@ import newsRoutes from './news/newsRoutes';
 import analysisRoutes from './analysis/analysisRoutes';
 import chatRoutes from './chat/chatRoutes';
 import calmDownRoutes from './chat/calmDownRoutes';
+import messageRoutes from './messages/messageRoutes';
 
 const app = express();
 
@@ -27,6 +28,7 @@ app.use('/api/news', newsRoutes);
 app.use('/api/analysis', analysisRoutes);
 app.use('/api/chat', chatRoutes);
 app.use('/api/calm-down', calmDownRoutes);
+app.use('/api/messages', messageRoutes);
 
 // Global error handling middleware (must be registered after all routes)
 app.use(errorHandler);
