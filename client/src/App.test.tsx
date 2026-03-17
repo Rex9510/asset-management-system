@@ -5,6 +5,11 @@ import App from './App';
 
 jest.mock('./api/messages', () => ({
   getUnreadCount: jest.fn().mockResolvedValue(0),
+  getDailyPicks: jest.fn().mockResolvedValue([]),
+}));
+
+jest.mock('./api/positions', () => ({
+  getPositions: jest.fn().mockResolvedValue([]),
 }));
 
 beforeEach(() => {
@@ -46,7 +51,7 @@ describe('App routing', () => {
         <App />
       </MemoryRouter>
     );
-    expect(screen.getByRole('heading', { name: '看板' })).toBeInTheDocument();
+    expect(screen.getByText('每日关注', { exact: false })).toBeInTheDocument();
   });
 
   it('shows login page at /login without redirect', () => {
