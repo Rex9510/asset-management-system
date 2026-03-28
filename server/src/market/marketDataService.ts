@@ -81,10 +81,10 @@ export async function fetchFromSina(stockCode: string): Promise<MarketQuote> {
   const url = `https://hq.sinajs.cn/list=${symbol}`;
   const response = await axios.get(url, {
     timeout: TIMEOUT_MS,
-    responseType: 'text',
+    responseType: 'arraybuffer',
     headers: { Referer: 'https://finance.sina.com.cn' },
   });
-  const text = response.data as string;
+  const text = new TextDecoder('gbk').decode(Buffer.from(response.data));
   // Format: var hq_str_sh600000="浦发银行,11.58,11.57,...";
   const match = text.match(/"(.+)"/);
   if (!match || !match[1]) {
@@ -115,9 +115,9 @@ export async function fetchFromTencent(stockCode: string): Promise<MarketQuote> 
   const url = `https://qt.gtimg.cn/q=${symbol}`;
   const response = await axios.get(url, {
     timeout: TIMEOUT_MS,
-    responseType: 'text',
+    responseType: 'arraybuffer',
   });
-  const text = response.data as string;
+  const text = new TextDecoder('gbk').decode(Buffer.from(response.data));
   // Format: v_sh600000="1~浦发银行~600000~11.58~11.57~...";
   const match = text.match(/"(.+)"/);
   if (!match || !match[1]) {

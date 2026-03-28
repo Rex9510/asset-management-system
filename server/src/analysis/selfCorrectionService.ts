@@ -79,12 +79,17 @@ function detectDeviation(
 // --- Get analysis price at time of analysis ---
 
 function getAnalysisPrice(analysis: AnalysisRow, db: Database.Database): number | null {
-  // Try to get the price from technical_indicators stored with the analysis
+  // Prefer the stored market_price (actual price at analysis time)
+  if (analysis.market_price != null && analysis.market_price > 0) {
+    return analysis.market_price;
+  }
+
+  // Fallback: try technical_indicators MA5 as proxy
   if (analysis.technical_indicators) {
     try {
       const indicators = JSON.parse(analysis.technical_indicators);
       if (indicators?.ma?.ma5) {
-        return indicators.ma.ma5; // Use MA5 as proxy for price at analysis time
+        return indicators.ma.ma5;
       }
     } catch {
       // ignore parse errors

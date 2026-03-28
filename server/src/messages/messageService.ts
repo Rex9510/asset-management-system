@@ -49,6 +49,15 @@ const VALID_TYPES = [
   'daily_pick',
   'target_price_alert',
   'ambush_recommendation',
+  'stop_loss_alert',
+  'rotation_switch',
+  'chain_activation',
+  'event_window',
+  'cycle_bottom',
+  'market_env_change',
+  'daily_pick_tracking',
+  'concentration_risk',
+  'deep_report',
 ];
 
 // --- Helpers ---
@@ -78,8 +87,11 @@ export function getMessages(
   const database = db || getDatabase();
   const { type, page = 1, limit = 20 } = options;
 
-  if (type && !VALID_TYPES.includes(type)) {
-    throw Errors.badRequest(`无效的消息类型: ${type}`);
+  const types = type ? type.split(',').map(t => t.trim()).filter(Boolean) : [];
+  for (const t of types) {
+    if (!VALID_TYPES.includes(t)) {
+      throw Errors.badRequest(`无效的消息类型: ${t}`);
+    }
   }
 
   const safePage = Math.max(1, Math.floor(page));
@@ -90,10 +102,15 @@ export function getMessages(
   let querySql = 'SELECT * FROM messages WHERE user_id = ?';
   const params: (number | string)[] = [userId];
 
-  if (type) {
+  if (types.length === 1) {
     countSql += ' AND type = ?';
     querySql += ' AND type = ?';
-    params.push(type);
+    params.push(types[0]);
+  } else if (types.length > 1) {
+    const placeholders = types.map(() => '?').join(',');
+    countSql += ` AND type IN (${placeholders})`;
+    querySql += ` AND type IN (${placeholders})`;
+    params.push(...types);
   }
 
   querySql += ' ORDER BY created_at DESC LIMIT ? OFFSET ?';

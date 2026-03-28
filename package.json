@@ -11,5 +11,11 @@
     "test:server": "cd server && npm test",
     "test:client": "cd client && npm test",
     "install:all": "cd server && npm install && cd ../client && npm install"
+  },
+  "dependencies": {
+    "puppeteer-core": "^24.40.0"
+  },
+  "devDependencies": {
+    "tesseract.js": "^7.0.0"
   }
 }

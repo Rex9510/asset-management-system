@@ -54,6 +54,11 @@ apiClient.interceptors.response.use(
       return Promise.reject(error);
     }
 
+    if (status === 404) {
+      // 404 is expected for "no data" states (e.g., non-trading days), don't toast
+      return Promise.reject(error);
+    }
+
     if (status >= 400 && status < 500) {
       showErrorToast(message || '请求错误');
     } else if (status >= 500) {

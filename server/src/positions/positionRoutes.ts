@@ -5,6 +5,7 @@ import {
   createPosition,
   updatePosition,
   deletePosition,
+  getTodayPnl,
   PositionType,
 } from './positionService';
 
@@ -12,6 +13,17 @@ const router = Router();
 
 // All position routes require authentication
 router.use(authMiddleware);
+
+// GET /api/positions/today-pnl - Get today's PnL for the authenticated user
+router.get('/today-pnl', (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const userId = req.user!.id;
+    const todayPnl = getTodayPnl(userId);
+    res.json({ todayPnl });
+  } catch (err) {
+    next(err);
+  }
+});
 
 // GET /api/positions - Get all positions for the authenticated user
 router.get('/', (req: Request, res: Response, next: NextFunction) => {

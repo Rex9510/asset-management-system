@@ -6,8 +6,8 @@ const router = Router();
 
 router.post('/register', (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { username, password } = req.body;
-    const result = register(username, password);
+    const { username, password, agreedTerms } = req.body;
+    const result = register(username, password, !!agreedTerms);
     res.status(201).json(result);
   } catch (err) {
     next(err);
@@ -16,8 +16,8 @@ router.post('/register', (req: Request, res: Response, next: NextFunction) => {
 
 router.post('/login', (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { username, password } = req.body;
-    const result = login(username, password);
+    const { username, password, agreedTerms } = req.body;
+    const result = login(username, password, !!agreedTerms);
     res.json(result);
   } catch (err) {
     next(err);

@@ -1,0 +1,13 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm run:*)",
+      "Bash(mkdir -p dist/db)",
+      "Bash(cp src/db/*.sql dist/db/)",
+      "Read(//d//**)"
+    ],
+    "additionalDirectories": [
+      "D:\\本地krio项目\\client\\src\\db"
+    ]
+  }
+}

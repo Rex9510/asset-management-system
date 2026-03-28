@@ -9,6 +9,7 @@ import { getDatabase } from '../db/connection';
 import { getMarketHistory, MarketHistoryRow } from '../indicators/indicatorService';
 import { detectRiskAlerts } from '../indicators/riskDetectionService';
 import { getAIProvider } from '../ai/aiProviderFactory';
+import { getQuote } from '../market/marketDataService';
 
 // --- Types ---
 
@@ -168,9 +169,6 @@ export function filterCandidates(db?: Database.Database): CandidateStock[] {
 export async function generateDailyPicks(userId: number, db?: Database.Database): Promise<DailyPick[]> {
   const database = db || getDatabase();
   const candidates = filterCandidates(database);
-
-  if (candidates.length === 0) return [];
-
   const aiProvider = getAIProvider();
 
   const systemPrompt = `你是一个专业的A股投资分析助手。请从候选股票池中按短期（1-2周波段）、中期（1-3个月趋势）、中长期（3个月以上价值）各精选1只股票。
@@ -181,19 +179,53 @@ export async function generateDailyPicks(userId: number, db?: Database.Database)
 4. 返回严格的 JSON 数组格式，每个元素包含：stockCode, stockName, period("short"/"mid"/"long"), reason, targetPriceLow, targetPriceHigh, estimatedUpside
 5. 仅供学习参考，不构成投资依据`;
 
-  const candidateInfo = candidates.slice(0, 20).map(c => ({
-    stockCode: c.stockCode,
-    stockName: c.stockName,
-    latestClose: c.latestClose,
-    weight: c.weight,
-    indicators: c.indicators,
-    matchCount: c.matchCount,
-  }));
+  let userMessage: string;
 
-  const userMessage = `以下是通过技术指标筛选的沪深300候选股票池（已排除主力诱导风险）：
+  if (candidates.length > 0) {
+    const candidateInfo = candidates.slice(0, 20).map(c => ({
+      stockCode: c.stockCode,
+      stockName: c.stockName,
+      latestClose: c.latestClose,
+      weight: c.weight,
+      indicators: c.indicators,
+      matchCount: c.matchCount,
+    }));
+
+    userMessage = `以下是通过技术指标筛选的沪深300候选股票池（已排除主力诱导风险）：
 ${JSON.stringify(candidateInfo, null, 2)}
 
 请从中按短期/中期/中长期各精选1只，返回JSON数组。`;
+  } else {
+    // No candidates from technical filtering — ask AI to pick from HS300 constituents directly
+    const constituents = database
+      .prepare('SELECT stock_code, stock_name, weight FROM hs300_constituents ORDER BY weight DESC LIMIT 30')
+      .all() as { stock_code: string; stock_name: string; weight: number }[];
+
+    if (constituents.length === 0) return [];
+
+    // Fetch current prices for top constituents so AI can give realistic target prices
+    const stockListWithPrices: { stockCode: string; stockName: string; weight: number; currentPrice?: number }[] = [];
+    for (const c of constituents) {
+      const item: { stockCode: string; stockName: string; weight: number; currentPrice?: number } = {
+        stockCode: c.stock_code,
+        stockName: c.stock_name,
+        weight: c.weight,
+      };
+      try {
+        const quote = await getQuote(c.stock_code.replace(/\.\w+$/, ''));
+        item.currentPrice = quote.price;
+      } catch {
+        // skip price if fetch fails
+      }
+      stockListWithPrices.push(item);
+    }
+
+    userMessage = `当前暂无技术指标数据，请从以下沪深300权重股中，基于你的市场知识按短期/中期/中长期各精选1只进行关注分析。
+注意：currentPrice是当前实时价格，你给出的目标价位必须基于当前价格合理推算，不要凭空编造。
+${JSON.stringify(stockListWithPrices, null, 2)}
+
+请返回JSON数组。`;
+  }
 
   try {
     const response = await aiProvider.chat(
@@ -247,17 +279,20 @@ export function parseAIPicksResponse(response: string, candidates: CandidateStoc
       if (usedPeriods.has(period)) continue;
       if (usedCodes.has(item.stockCode)) continue;
 
-      // Validate the stock is in candidates
-      const candidate = candidates.find(c => c.stockCode === item.stockCode);
-      if (!candidate) continue;
+      // Validate the stock is in candidates (skip validation if no candidates)
+      const candidate = candidates.length > 0
+        ? candidates.find(c => c.stockCode === item.stockCode)
+        : null;
+      if (candidates.length > 0 && !candidate) continue;
 
-      const targetLow = Number(item.targetPriceLow) || candidate.latestClose * 1.05;
-      const targetHigh = Number(item.targetPriceHigh) || candidate.latestClose * 1.15;
-      const upside = Number(item.estimatedUpside) || Math.round(((targetHigh + targetLow) / 2 / candidate.latestClose - 1) * 100);
+      const basePrice = candidate?.latestClose || 10;
+      const targetLow = Number(item.targetPriceLow) || basePrice * 1.05;
+      const targetHigh = Number(item.targetPriceHigh) || basePrice * 1.15;
+      const upside = Number(item.estimatedUpside) || Math.round(((targetHigh + targetLow) / 2 / basePrice - 1) * 100);
 
       picks.push({
         stockCode: item.stockCode,
-        stockName: item.stockName || candidate.stockName,
+        stockName: item.stockName || candidate?.stockName || item.stockCode,
         period,
         periodLabel: periodLabels[period],
         reason: item.reason || '技术面和基本面综合分析',

@@ -32,6 +32,8 @@ export interface AnalysisContext {
     buyDate: string;
   };
   userHistory?: string;
+  /** 二期扩展：额外上下文数据（估值分位、轮动阶段、传导链、情绪、事件等） */
+  additionalContext?: string;
 }
 
 /** AI 分析结果 */

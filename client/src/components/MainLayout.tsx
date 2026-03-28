@@ -16,13 +16,16 @@ const MainLayout: React.FC = () => {
 const styles: Record<string, React.CSSProperties> = {
   container: {
     maxWidth: '428px',
+    minWidth: '320px',
     margin: '0 auto',
     minHeight: '100vh',
-    background: '#f5f5f5',
+    background: 'linear-gradient(180deg, #f0f2f5 0%, #e8eaf0 100%)',
     position: 'relative',
+    overflowX: 'hidden',
   },
   content: {
-    paddingBottom: '56px',
+    paddingBottom: '60px',
+    minHeight: 'calc(100vh - 60px)',
   },
 };
 

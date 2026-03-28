@@ -1,6 +1,6 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { authMiddleware } from '../middleware/authMiddleware';
-import { sendMessage, getChatHistory, detectSellIntent, evaluateCalmDown } from './chatService';
+import { sendMessage, getChatHistory, detectSellIntent } from './chatService';
 import { Errors } from '../errors/AppError';
 
 const router = Router();

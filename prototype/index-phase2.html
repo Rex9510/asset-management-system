@@ -1,0 +1,1378 @@
+﻿<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>AI智能投资陪伴助手</title>
+<style>
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #f5f6fa; color: #333; max-width: 428px; margin: 0 auto; min-height: 100vh; }
+.page { display: none !important; }
+.page.active { display: block !important; }
+.login-page.active { display: flex !important; }
+.login-page { flex-direction: column; align-items: center; justify-content: center; min-height: 100vh; padding: 32px; background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%); }
+.profit-up { color: #ff4757; }
+.profit-down { color: #2ed573; }
+.stock-card { background: #fff; border-radius: 12px; padding: 16px; margin-bottom: 12px; box-shadow: 0 2px 8px rgba(0,0,0,0.06); }
+.stock-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+.stock-info { display: grid; grid-template-columns: 1fr 1fr 1fr 1fr; gap: 8px; margin-bottom: 12px; padding-bottom: 12px; border-bottom: 1px solid #f0f0f0; }
+.stock-info .info-item { text-align: center; }
+.stock-info .info-label { font-size: 11px; color: #999; margin-bottom: 2px; }
+.stock-info .info-value { font-size: 13px; font-weight: 600; }
+.ai-analysis { background: #f8f9ff; border-radius: 8px; padding: 12px; }
+.signal-item { font-size: 11px; padding: 3px 8px; border-radius: 6px; display: inline-block; margin: 2px; }
+.signal-bullish { background: rgba(46,213,115,0.1); color: #2ed573; }
+.signal-neutral { background: rgba(255,165,2,0.1); color: #e6960a; }
+.signal-bearish { background: rgba(255,71,87,0.1); color: #ff4757; }
+.bottom-nav { position: fixed; bottom: 0; left: 50%; transform: translateX(-50%); width: 100%; max-width: 428px; background: #fff; display: none; justify-content: space-around; padding: 8px 0 20px; border-top: 1px solid #eee; z-index: 100; }
+.nav-item { display: flex; flex-direction: column; align-items: center; gap: 2px; cursor: pointer; }
+.nav-item .icon { font-size: 22px; }
+.nav-item .label { font-size: 11px; color: #999; }
+.nav-item.active .label { color: #4a69bd; font-weight: 600; }
+.badge { position: absolute; top: -4px; right: -8px; background: #ff4757; color: #fff; font-size: 10px; min-width: 16px; height: 16px; border-radius: 8px; display: flex; align-items: center; justify-content: center; padding: 0 4px; }
+.modal-overlay { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); z-index: 200; justify-content: center; align-items: flex-end; }
+.report-modal { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: #fff; z-index: 200; overflow-y: auto; max-width: 428px; margin: 0 auto; }
+</style>
+</head>
+<body>
+
+<!-- ==================== 1. LOGIN PAGE ==================== -->
+<div id="loginPage" class="login-page page active">
+  <div style="font-size:48px;margin-bottom:8px;">📈</div>
+  <div style="color:#fff;font-size:22px;font-weight:700;margin-bottom:4px;">AI投资陪伴助手</div>
+  <div style="color:#aaa;font-size:13px;margin-bottom:32px;">你的专业投资伙伴</div>
+  <div style="width:100%;">
+    <input style="width:100%;padding:14px 16px;border:none;border-radius:10px;background:rgba(255,255,255,0.1);color:#fff;font-size:15px;margin-bottom:12px;outline:none;" placeholder="用户名" value="demo">
+    <input style="width:100%;padding:14px 16px;border:none;border-radius:10px;background:rgba(255,255,255,0.1);color:#fff;font-size:15px;margin-bottom:12px;outline:none;" type="password" placeholder="密码" value="123456">
+    <button style="width:100%;padding:14px;border:none;border-radius:10px;background:#4a69bd;color:#fff;font-size:16px;font-weight:600;cursor:pointer;margin-top:8px;" onclick="showPage('dashboard')">登 录</button>
+    <div style="color:#aaa;font-size:13px;text-align:center;margin-top:16px;cursor:pointer;">没有账号？立即注册</div>
+  </div>
+</div>
+
+<!-- ==================== 2. DASHBOARD PAGE (看板) ==================== -->
+<div id="dashboardPage" class="page">
+
+  <!-- 2a+2b. Sticky Header: Portfolio Summary + Market Bar (compact) -->
+  <div style="position:sticky;top:0;z-index:10;">
+    <div style="background:linear-gradient(135deg,#1a1a2e 0%,#16213e 100%);color:#fff;padding:10px 16px;">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;">
+        <div style="font-size:22px;font-weight:700;">¥ 186,520.00</div>
+        <div style="font-size:11px;color:#aaa;">总资产</div>
+      </div>
+      <div style="display:flex;gap:12px;font-size:11px;margin-top:4px;">
+        <span>今日 <span class="profit-up">+2,380.00</span></span>
+        <span>总盈亏 <span class="profit-up">+18,520 (+11.03%)</span></span>
+      </div>
+    </div>
+    <div style="background:#16213e;padding:6px 16px 8px;display:flex;gap:6px;overflow-x:auto;">
+      <span style="font-size:10px;padding:3px 8px;border-radius:10px;background:rgba(255,165,2,0.2);color:#ffa502;white-space:nowrap;">⚖️ 震荡</span>
+      <span style="font-size:10px;padding:3px 8px;border-radius:10px;background:rgba(74,105,189,0.2);color:#6c9bff;white-space:nowrap;">� P1 科技成长</span>
+      <span onclick="document.getElementById('sentimentDetail').style.display=document.getElementById('sentimentDetail').style.display==='block'?'none':'block'" style="font-size:10px;padding:3px 8px;border-radius:10px;background:rgba(155,89,182,0.2);color:#c39bdf;white-space:nowrap;cursor:pointer;">😐 情绪48 ›</span>
+    </div>
+  </div>
+
+  <!-- 2c. Sentiment Gauge (collapsible) -->
+  <div id="sentimentDetail" style="display:none;background:#1a1a2e;padding:16px;text-align:center;">
+    <div style="width:80px;height:80px;border-radius:50%;border:4px solid #ffa502;display:flex;flex-direction:column;align-items:center;justify-content:center;margin:0 auto 12px;">
+      <span style="font-size:24px;font-weight:700;color:#ffa502;">48</span>
+      <span style="font-size:10px;color:#aaa;">中性</span>
+    </div>
+    <div style="position:relative;height:8px;border-radius:4px;background:linear-gradient(to right,#2ed573,#ffa502,#ff4757);margin:0 16px;">
+      <div style="position:absolute;top:-4px;left:48%;width:16px;height:16px;border-radius:50%;background:#fff;border:2px solid #ffa502;transform:translateX(-50%);"></div>
+    </div>
+    <div style="display:flex;justify-content:space-between;margin:6px 16px 0;font-size:9px;color:#777;">
+      <span>极度恐慌</span><span>恐慌</span><span>中性</span><span>贪婪</span><span>极度贪婪</span>
+    </div>
+  </div>
+
+  <!-- 2d. Commodity Chain -->
+  <div style="background:#fff;border-radius:12px;margin:12px;padding:16px;box-shadow:0 2px 8px rgba(0,0,0,0.06);">
+    <div style="font-size:14px;font-weight:700;margin-bottom:12px;">📦 商品传导链</div>
+    <div style="display:flex;align-items:center;overflow-x:auto;gap:0;padding-bottom:8px;">
+      <div style="display:flex;flex-direction:column;align-items:center;min-width:48px;">
+        <div style="width:36px;height:36px;border-radius:50%;background:rgba(46,213,115,0.15);border:2px solid #2ed573;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;color:#2ed573;">Au</div>
+        <span style="font-size:9px;color:#2ed573;margin-top:3px;">黄金</span>
+      </div>
+      <span style="color:#2ed573;font-size:14px;margin:0 2px;">→</span>
+      <div style="display:flex;flex-direction:column;align-items:center;min-width:48px;">
+        <div style="width:36px;height:36px;border-radius:50%;background:rgba(46,213,115,0.15);border:2px solid #2ed573;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;color:#2ed573;">Ag</div>
+        <span style="font-size:9px;color:#2ed573;margin-top:3px;">白银</span>
+      </div>
+      <span style="color:#2ed573;font-size:14px;margin:0 2px;">→</span>
+      <div style="display:flex;flex-direction:column;align-items:center;min-width:48px;">
+        <div style="width:36px;height:36px;border-radius:50%;background:rgba(255,165,2,0.15);border:2px solid #ffa502;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;color:#ffa502;">Cu</div>
+        <span style="font-size:9px;color:#ffa502;margin-top:3px;">有色</span>
+      </div>
+      <span style="color:#ccc;font-size:14px;margin:0 2px;">→</span>
+      <div style="display:flex;flex-direction:column;align-items:center;min-width:48px;">
+        <div style="width:36px;height:36px;border-radius:50%;background:rgba(153,153,153,0.1);border:2px solid #bbb;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;color:#999;">煤</div>
+        <span style="font-size:9px;color:#999;margin-top:3px;">煤炭</span>
+      </div>
+      <span style="color:#ccc;font-size:14px;margin:0 2px;">→</span>
+      <div style="display:flex;flex-direction:column;align-items:center;min-width:48px;">
+        <div style="width:36px;height:36px;border-radius:50%;background:rgba(153,153,153,0.1);border:2px solid #bbb;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;color:#999;">化</div>
+        <span style="font-size:9px;color:#999;margin-top:3px;">化工</span>
+      </div>
+      <span style="color:#ccc;font-size:14px;margin:0 2px;">→</span>
+      <div style="display:flex;flex-direction:column;align-items:center;min-width:48px;">
+        <div style="width:36px;height:36px;border-radius:50%;background:rgba(153,153,153,0.1);border:2px solid #bbb;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;color:#999;">胶</div>
+        <span style="font-size:9px;color:#999;margin-top:3px;">橡胶</span>
+      </div>
+      <span style="color:#ccc;font-size:14px;margin:0 2px;">→</span>
+      <div style="display:flex;flex-direction:column;align-items:center;min-width:48px;">
+        <div style="width:36px;height:36px;border-radius:50%;background:rgba(153,153,153,0.1);border:2px solid #bbb;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:600;color:#999;">油</div>
+        <span style="font-size:9px;color:#999;margin-top:3px;">原油</span>
+      </div>
+    </div>
+    <div style="font-size:10px;color:#999;margin-top:4px;">🟢 激活 → 🟡 传导中 → ⚪ 未激活</div>
+  </div>
+
+  <!-- 2e. Event Calendar -->
+  <div style="background:#fff;border-radius:12px;margin:0 12px 12px;padding:16px;box-shadow:0 2px 8px rgba(0,0,0,0.06);">
+    <div style="font-size:14px;font-weight:700;margin-bottom:12px;">📅 事件日历（未来7天）</div>
+    <div style="padding:10px 0;border-bottom:1px solid #f0f0f0;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+        <span style="font-size:13px;font-weight:600;">3月22日 · 美联储议息会议</span>
+        <span style="font-size:10px;padding:2px 8px;border-radius:8px;background:rgba(46,213,115,0.1);color:#2ed573;font-weight:600;">📥 事件前·可建仓</span>
+      </div>
+      <div style="font-size:11px;color:#999;">关联：黄金、银行、科技</div>
+      <div style="font-size:11px;color:#2ed573;margin-top:3px;">💡 议息前市场预期升温，关联板块可能提前拉升</div>
+    </div>
+    <div style="padding:10px 0;border-bottom:1px solid #f0f0f0;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+        <span style="font-size:13px;font-weight:600;">3月25日 · 3月PMI数据发布</span>
+        <span style="font-size:10px;padding:2px 8px;border-radius:8px;background:rgba(255,165,2,0.1);color:#ffa502;font-weight:600;">⏳ 事件中·观望</span>
+      </div>
+      <div style="font-size:11px;color:#999;">关联：周期品、制造业</div>
+      <div style="font-size:11px;color:#e6960a;margin-top:3px;">💡 数据公布前后波动大，已持仓可持有，未建仓宜等待</div>
+    </div>
+    <div style="padding:10px 0;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+        <span style="font-size:13px;font-weight:600;">3月28日 · 年报披露密集期</span>
+        <span style="font-size:10px;padding:2px 8px;border-radius:8px;background:rgba(255,71,87,0.1);color:#ff4757;font-weight:600;">📤 利好兑现·可减仓</span>
+      </div>
+      <div style="font-size:11px;color:#999;">关联：白酒、银行、新能源</div>
+      <div style="font-size:11px;color:#ff4757;margin-top:3px;">💡 年报利好已被提前消化，聪明资金可能在披露后获利了结</div>
+    </div>
+  </div>
+
+  <!-- 2f. Daily Picks Card -->
+  <div style="background:linear-gradient(135deg,#f8f9ff 0%,#eef1ff 100%);border:1px solid #4a69bd;border-radius:12px;margin:0 12px 12px;padding:16px;box-shadow:0 2px 8px rgba(0,0,0,0.06);">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+      <span style="font-size:14px;font-weight:700;color:#4a69bd;">🔍 今日关注</span>
+      <span style="font-size:11px;color:#999;">2026-03-21</span>
+    </div>
+    <!-- 短期 -->
+    <div style="border-bottom:1px dashed #dde3f0;padding-bottom:12px;margin-bottom:12px;">
+      <div style="margin-bottom:6px;"><span style="font-size:11px;padding:2px 8px;border-radius:10px;background:#fff3e0;color:#ff9800;font-weight:600;">短期 1-2周</span></div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+        <div><span style="font-size:16px;font-weight:600;">中际旭创</span><span style="font-size:12px;color:#999;margin-left:6px;">300308</span></div>
+        <div style="text-align:right;"><div style="font-size:20px;font-weight:700;" class="profit-up">128.50</div><span style="font-size:13px;padding:2px 8px;border-radius:4px;background:rgba(255,71,87,0.1);color:#ff4757;">+4.12%</span></div>
+      </div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px;">
+        <span style="font-size:10px;padding:2px 6px;border-radius:4px;background:rgba(46,213,115,0.1);color:#2ed573;">PE 22%分位 低估</span>
+        <span style="font-size:10px;padding:2px 6px;border-radius:4px;background:rgba(255,165,2,0.1);color:#e6960a;">PB 45%分位 合理</span>
+      </div>
+      <div style="display:flex;gap:12px;padding:6px 10px;background:rgba(74,105,189,0.08);border-radius:8px;">
+        <div style="flex:1;text-align:center;"><div style="font-size:10px;color:#999;">目标价位</div><div style="font-size:13px;font-weight:700;color:#ff4757;">138 - 152</div></div>
+        <div style="flex:1;text-align:center;"><div style="font-size:10px;color:#999;">预估上升空间</div><div style="font-size:13px;font-weight:700;color:#ff4757;">+7.4% ~ +18.3%</div></div>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:8px;">
+        <button onclick="quickWatch('中际旭创','300308')" style="flex:1;padding:7px;border:1px solid #4a69bd;border-radius:6px;background:#fff;color:#4a69bd;font-size:12px;font-weight:600;cursor:pointer;">👁 加入关注</button>
+        <button onclick="quickBuy('中际旭创','300308','128.50','2026-03-21')" style="flex:1;padding:7px;border:none;border-radius:6px;background:#ff4757;color:#fff;font-size:12px;font-weight:600;cursor:pointer;">🛒 快速买入</button>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px;"><span style="font-size:11px;font-weight:600;padding:2px 6px;border-radius:4px;background:rgba(255,165,2,0.1);color:#e6960a;">🟡 中置信 75%</span><span style="font-size:12px;color:#4a69bd;cursor:pointer;">查看完整分析 ›</span></div>
+    </div>
+    <!-- 中期 -->
+    <div style="border-bottom:1px dashed #dde3f0;padding-bottom:12px;margin-bottom:12px;">
+      <div style="margin-bottom:6px;"><span style="font-size:11px;padding:2px 8px;border-radius:10px;background:#e8f5e9;color:#2ed573;font-weight:600;">中期 1-3个月</span></div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+        <div><span style="font-size:16px;font-weight:600;">招商银行</span><span style="font-size:12px;color:#999;margin-left:6px;">600036</span></div>
+        <div style="text-align:right;"><div style="font-size:20px;font-weight:700;" class="profit-up">38.20</div><span style="font-size:13px;padding:2px 8px;border-radius:4px;background:rgba(255,71,87,0.1);color:#ff4757;">+1.06%</span></div>
+      </div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px;">
+        <span style="font-size:10px;padding:2px 6px;border-radius:4px;background:rgba(46,213,115,0.1);color:#2ed573;">PE 18%分位 低估</span>
+        <span style="font-size:10px;padding:2px 6px;border-radius:4px;background:rgba(46,213,115,0.1);color:#2ed573;">PB 15%分位 低估</span>
+      </div>
+      <div style="display:flex;gap:12px;padding:6px 10px;background:rgba(74,105,189,0.08);border-radius:8px;">
+        <div style="flex:1;text-align:center;"><div style="font-size:10px;color:#999;">目标价位</div><div style="font-size:13px;font-weight:700;color:#ff4757;">42 - 46</div></div>
+        <div style="flex:1;text-align:center;"><div style="font-size:10px;color:#999;">预估上升空间</div><div style="font-size:13px;font-weight:700;color:#ff4757;">+9.9% ~ +20.4%</div></div>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:8px;">
+        <button onclick="quickWatch('招商银行','600036')" style="flex:1;padding:7px;border:1px solid #4a69bd;border-radius:6px;background:#fff;color:#4a69bd;font-size:12px;font-weight:600;cursor:pointer;">👁 加入关注</button>
+        <button onclick="quickBuy('招商银行','600036','38.20','2026-03-21')" style="flex:1;padding:7px;border:none;border-radius:6px;background:#ff4757;color:#fff;font-size:12px;font-weight:600;cursor:pointer;">🛒 快速买入</button>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px;"><span style="font-size:11px;font-weight:600;padding:2px 6px;border-radius:4px;background:rgba(46,213,115,0.1);color:#2ed573;">🟢 高置信 82%</span><span style="font-size:12px;color:#4a69bd;cursor:pointer;">查看完整分析 ›</span></div>
+    </div>
+    <!-- 中长期 -->
+    <div>
+      <div style="margin-bottom:6px;"><span style="font-size:11px;padding:2px 8px;border-radius:10px;background:#e8f0fe;color:#4a69bd;font-weight:600;">中长期 3个月+</span></div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+        <div><span style="font-size:16px;font-weight:600;">海螺水泥</span><span style="font-size:12px;color:#999;margin-left:6px;">600585</span></div>
+        <div style="text-align:right;"><div style="font-size:20px;font-weight:700;" class="profit-down">28.60</div><span style="font-size:13px;padding:2px 8px;border-radius:4px;background:rgba(46,213,115,0.1);color:#2ed573;">-0.35%</span></div>
+      </div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:6px;">
+        <span style="font-size:10px;padding:2px 6px;border-radius:4px;background:rgba(46,213,115,0.1);color:#2ed573;">PE 8%分位 低估</span>
+        <span style="font-size:10px;padding:2px 6px;border-radius:4px;background:rgba(255,165,2,0.1);color:#e6960a;">PB 42%分位 合理</span>
+      </div>
+      <div style="display:flex;gap:12px;padding:6px 10px;background:rgba(74,105,189,0.08);border-radius:8px;">
+        <div style="flex:1;text-align:center;"><div style="font-size:10px;color:#999;">目标价位</div><div style="font-size:13px;font-weight:700;color:#ff4757;">34 - 40</div></div>
+        <div style="flex:1;text-align:center;"><div style="font-size:10px;color:#999;">预估上升空间</div><div style="font-size:13px;font-weight:700;color:#ff4757;">+18.9% ~ +39.9%</div></div>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:8px;">
+        <button onclick="quickWatch('海螺水泥','600585')" style="flex:1;padding:7px;border:1px solid #4a69bd;border-radius:6px;background:#fff;color:#4a69bd;font-size:12px;font-weight:600;cursor:pointer;">👁 加入关注</button>
+        <button onclick="quickBuy('海螺水泥','600585','28.60','2026-03-21')" style="flex:1;padding:7px;border:none;border-radius:6px;background:#ff4757;color:#fff;font-size:12px;font-weight:600;cursor:pointer;">🛒 快速买入</button>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:6px;"><span style="font-size:11px;font-weight:600;padding:2px 6px;border-radius:4px;background:rgba(255,165,2,0.1);color:#e6960a;">🟡 中置信 70%</span><span style="font-size:12px;color:#4a69bd;cursor:pointer;">查看完整分析 ›</span></div>
+    </div>
+    <div style="font-size:10px;color:#bbb;margin-top:10px;text-align:center;">仅供学习参考，不构成投资依据</div>
+  </div>
+
+  <!-- 2g. Cycle Monitor -->
+  <div style="background:#fff;border-radius:12px;margin:0 12px 12px;padding:16px;box-shadow:0 2px 8px rgba(0,0,0,0.06);">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;">
+      <span style="font-size:14px;font-weight:700;">🔄 周期监控</span>
+      <span style="font-size:12px;color:#4a69bd;cursor:pointer;" onclick="document.getElementById('addCycleModal').style.display='flex'">+ 添加</span>
+    </div>
+    <div style="padding:10px 0;border-bottom:1px solid #f0f0f0;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+        <div><span style="font-size:13px;font-weight:600;">豆粕ETF</span><span style="font-size:11px;color:#999;margin-left:4px;">159985</span></div>
+        <span style="font-size:10px;padding:2px 8px;border-radius:8px;background:rgba(46,213,115,0.1);color:#2ed573;font-weight:600;">🟢 底部区间</span>
+      </div>
+      <div style="font-size:11px;color:#999;">一轮周期约6年（涨2年→跌2年→横2年）</div>
+      <div style="font-size:11px;color:#2ed573;margin-top:3px;">📍 当前处于横盘末期，已横盘约1.5年，预计未来半年可能启动上涨</div>
+      <div style="margin-top:6px;height:4px;background:#f0f0f0;border-radius:2px;position:relative;">
+        <div style="position:absolute;left:0;top:0;height:100%;width:75%;background:linear-gradient(to right,#2ed573 33%,#ff4757 33% 66%,#ffa502 66%);border-radius:2px;opacity:0.3;"></div>
+        <div style="position:absolute;top:-3px;left:75%;width:10px;height:10px;border-radius:50%;background:#2ed573;border:2px solid #fff;box-shadow:0 0 4px rgba(0,0,0,0.2);"></div>
+      </div>
+      <div style="display:flex;justify-content:space-between;font-size:9px;color:#bbb;margin-top:4px;"><span>涨</span><span>跌</span><span>横</span><span>▲</span></div>
+    </div>
+    <div style="padding:10px 0;border-bottom:1px solid #f0f0f0;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+        <div><span style="font-size:13px;font-weight:600;">煤炭ETF</span><span style="font-size:11px;color:#999;margin-left:4px;">515220</span></div>
+        <span style="font-size:10px;padding:2px 8px;border-radius:8px;background:rgba(255,165,2,0.1);color:#ffa502;font-weight:600;">🟡 下跌中段</span>
+      </div>
+      <div style="font-size:11px;color:#999;">一轮周期约4年（涨1.5年→跌1.5年→横1年）</div>
+      <div style="font-size:11px;color:#e6960a;margin-top:3px;">📍 当前处于下跌阶段，已跌约8个月，预计还需6-8个月见底</div>
+      <div style="margin-top:6px;height:4px;background:#f0f0f0;border-radius:2px;position:relative;">
+        <div style="position:absolute;left:0;top:0;height:100%;width:100%;background:linear-gradient(to right,#2ed573 37%,#ff4757 37% 75%,#ffa502 75%);border-radius:2px;opacity:0.3;"></div>
+        <div style="position:absolute;top:-3px;left:50%;width:10px;height:10px;border-radius:50%;background:#ffa502;border:2px solid #fff;box-shadow:0 0 4px rgba(0,0,0,0.2);"></div>
+      </div>
+      <div style="display:flex;justify-content:space-between;font-size:9px;color:#bbb;margin-top:4px;"><span>涨</span><span>跌 ▲</span><span>横</span></div>
+    </div>
+    <div style="padding:10px 0;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+        <div><span style="font-size:13px;font-weight:600;">黄金ETF</span><span style="font-size:11px;color:#999;margin-left:4px;">518880</span></div>
+        <span style="font-size:10px;padding:2px 8px;border-radius:8px;background:rgba(255,71,87,0.1);color:#ff4757;font-weight:600;">🔴 高位运行</span>
+      </div>
+      <div style="font-size:11px;color:#999;">康波长周期（信用周期见顶→美元贬值→黄金长牛）</div>
+      <div style="font-size:11px;color:#ff4757;margin-top:3px;">📍 当前处于长牛上涨阶段，已涨约3年，长期趋势未变但短期注意回调风险</div>
+      <div style="margin-top:6px;height:4px;background:#f0f0f0;border-radius:2px;position:relative;">
+        <div style="position:absolute;left:0;top:0;height:100%;width:100%;background:linear-gradient(to right,#2ed573);border-radius:2px;opacity:0.3;"></div>
+        <div style="position:absolute;top:-3px;left:60%;width:10px;height:10px;border-radius:50%;background:#ff4757;border:2px solid #fff;box-shadow:0 0 4px rgba(0,0,0,0.2);"></div>
+      </div>
+      <div style="display:flex;justify-content:space-between;font-size:9px;color:#bbb;margin-top:4px;"><span>起涨</span><span>▲ 当前</span><span>未知顶部</span></div>
+    </div>
+  </div>
+
+  <div style="height:80px;"></div>
+</div>
+
+<!-- ==================== 3. POSITION PAGE (持仓) ==================== -->
+<div id="positionPage" class="page">
+  <div style="position:sticky;top:0;z-index:10;">
+    <div style="background:#1a1a2e;color:#fff;padding:12px 16px;text-align:center;font-size:17px;font-weight:600;">我的持仓</div>
+    <div style="display:flex;margin:0;background:#fff;overflow:hidden;border-bottom:1px solid #eee;">
+      <div id="tabPosition" onclick="switchTab('position')" style="flex:1;padding:10px;text-align:center;font-size:13px;font-weight:600;cursor:pointer;background:#4a69bd;color:#fff;">📦 我的持仓</div>
+      <div id="tabWatch" onclick="switchTab('watch')" style="flex:1;padding:10px;text-align:center;font-size:13px;font-weight:600;cursor:pointer;background:#fff;color:#666;">👁 我的关注</div>
+    </div>
+  </div>
+
+  <!-- Position List -->
+  <div id="positionList">
+  <!-- Stock Card 1 - 贵州茅台 -->
+  <div class="stock-card" style="margin:0 12px 12px;">
+    <div class="stock-header">
+      <div><span style="font-size:16px;font-weight:600;">贵州茅台</span><span style="font-size:12px;color:#999;margin-left:6px;">600519</span></div>
+      <div style="text-align:right;"><div style="font-size:20px;font-weight:700;" class="profit-up">1,856.00</div><span style="font-size:13px;padding:2px 8px;border-radius:4px;background:rgba(255,71,87,0.1);color:#ff4757;">+2.35%</span></div>
+    </div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;">
+      <span style="font-size:10px;padding:2px 6px;border-radius:4px;background:rgba(255,165,2,0.1);color:#e6960a;">PE 55%分位 合理</span>
+      <span style="font-size:10px;padding:2px 6px;border-radius:4px;background:rgba(255,165,2,0.1);color:#e6960a;">PB 62%分位 合理</span>
+      <span style="font-size:10px;padding:2px 6px;border-radius:4px;background:rgba(74,105,189,0.08);color:#4a69bd;">10年数据</span>
+    </div>
+    <div class="stock-info">
+      <div class="info-item"><div class="info-label">成本价</div><div class="info-value">1,680.00</div></div>
+      <div class="info-item"><div class="info-label">持有</div><div class="info-value">50股</div></div>
+      <div class="info-item"><div class="info-label">盈亏</div><div class="info-value profit-up">+8,800</div></div>
+      <div class="info-item"><div class="info-label">盈亏比</div><div class="info-value profit-up">+10.48%</div></div>
+    </div>
+    <div style="padding:8px 12px;border:1px dashed #2ed573;border-radius:8px;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;">
+      <span style="font-size:12px;color:#555;">🛡️ 止损线：1,600.00（距当前 -13.8%）</span>
+      <span style="font-size:10px;padding:2px 8px;border-radius:8px;background:rgba(46,213,115,0.1);color:#2ed573;font-weight:600;">安全</span>
+    </div>
+    <div style="padding:8px 12px;background:#fafafa;border-radius:8px;margin-bottom:10px;font-size:12px;color:#666;">
+      <div>📅 已持仓 <b style="color:#333;">45天</b></div>
+      <div style="font-size:11px;margin-top:2px;" class="profit-up">📈 参考预估：持有30天收益区间5%-12%</div>
+    </div>
+    <div style="background:#f0f4ff;border-radius:8px;padding:10px 12px;margin-bottom:10px;">
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:4px;">
+        <span class="signal-item signal-bullish">🟢 MA 多头排列</span>
+        <span class="signal-item signal-bullish">🟢 MACD 金叉</span>
+        <span class="signal-item signal-neutral">🟡 KDJ 高位</span>
+        <span class="signal-item signal-bullish">🟢 RSI 强势区</span>
+      </div>
+      <div style="margin-top:6px;cursor:pointer;" onclick="var c=this.querySelector('.dc');c.style.display=c.style.display==='block'?'none':'block';this.querySelector('.dt').style.display=c.style.display==='block'?'none':'inline';">
+        <span class="dt" style="font-size:11px;color:#4a69bd;">📊 查看原始数值 ›</span>
+        <div class="dc" style="display:none;font-size:10px;color:#999;margin-top:4px;line-height:1.5;">MA5:1,842 MA20:1,798 | MACD:+12.3 | KDJ:K78/D65/J104 | RSI6:68.5</div>
+      </div>
+    </div>
+    <div class="ai-analysis">
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;">
+        <span style="width:8px;height:8px;border-radius:50%;background:#2ed573;display:inline-block;"></span>
+        <span style="font-size:12px;font-weight:600;padding:2px 8px;border-radius:10px;background:rgba(255,71,87,0.1);color:#ff4757;">🔥 主升浪中段</span>
+        <span style="font-size:12px;color:#4a69bd;cursor:pointer;border:1px solid #4a69bd;padding:2px 10px;border-radius:12px;margin-left:auto;" onclick="alert('正在刷新AI分析...')">🔄 刷新</span>
+      </div>
+      <div style="font-size:13px;line-height:1.6;color:#555;">
+        <b style="color:#1a1a2e;">📊 参考方案：继续持有</b>，目标区间1,920-2,000。<br>
+        💰 <b>利润仓（30%·15股）</b>：到达1,920可先出锁定利润<br>
+        🏦 <b>底仓（70%·35股）</b>：继续持有看2,000目标价
+      </div>
+      <div style="font-size:11px;color:#999;margin-top:8px;display:flex;justify-content:space-between;align-items:center;"><span style="font-size:11px;font-weight:600;padding:2px 6px;border-radius:4px;background:rgba(255,165,2,0.1);color:#e6960a;">🟡 中置信 78%</span><span style="font-size:12px;color:#4a69bd;cursor:pointer;" onclick="alert('推理过程：\n1. 技术面：MACD金叉，KDJ向上发散\n2. 基本面：Q3营收同比+15%\n3. 资金面：北向资金连续3日净买入\n4. 行业：白酒板块整体走强\n\n综合判断：主升浪中段，上方空间约8-12%')">查看推理 ›</span></div>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:12px;">
+      <button onclick="showDeepReport()" style="flex:1;padding:10px;border:none;border-radius:8px;background:#4a69bd;color:#fff;font-size:13px;font-weight:600;cursor:pointer;">📋 生成深度报告</button>
+      <button onclick="showBacktest()" style="flex:1;padding:10px;border:none;border-radius:8px;background:#9b59b6;color:#fff;font-size:13px;font-weight:600;cursor:pointer;">📈 历史回测</button>
+    </div>
+  </div>
+
+  <!-- Stock Card 2 - 宁德时代 -->
+  <div class="stock-card" style="margin:0 12px 12px;">
+    <div class="stock-header">
+      <div><span style="font-size:16px;font-weight:600;">宁德时代</span><span style="font-size:12px;color:#999;margin-left:6px;">300750</span></div>
+      <div style="text-align:right;"><div style="font-size:20px;font-weight:700;" class="profit-down">218.50</div><span style="font-size:13px;padding:2px 8px;border-radius:4px;background:rgba(46,213,115,0.1);color:#2ed573;">-1.28%</span></div>
+    </div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;">
+      <span style="font-size:10px;padding:2px 6px;border-radius:4px;background:rgba(46,213,115,0.1);color:#2ed573;">PE 28%分位 低估</span>
+      <span style="font-size:10px;padding:2px 6px;border-radius:4px;background:rgba(255,165,2,0.1);color:#e6960a;">PB 35%分位 合理</span>
+    </div>
+    <div class="stock-info">
+      <div class="info-item"><div class="info-label">成本价</div><div class="info-value">230.00</div></div>
+      <div class="info-item"><div class="info-label">持有</div><div class="info-value">200股</div></div>
+      <div class="info-item"><div class="info-label">盈亏</div><div class="info-value profit-down">-2,300</div></div>
+      <div class="info-item"><div class="info-label">盈亏比</div><div class="info-value profit-down">-5.00%</div></div>
+    </div>
+    <div style="padding:8px 12px;border:1px dashed #ffa502;border-radius:8px;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;">
+      <span style="font-size:12px;color:#555;">🛡️ 止损线：210.00（距当前 -3.9%）</span>
+      <span style="font-size:10px;padding:2px 8px;border-radius:8px;background:rgba(255,165,2,0.1);color:#ffa502;font-weight:600;">⚠️ 接近</span>
+    </div>
+    <div style="padding:8px 12px;background:#fafafa;border-radius:8px;margin-bottom:10px;font-size:12px;color:#666;">
+      <div>📅 已持仓 <b style="color:#333;">30天</b></div>
+      <div style="font-size:11px;margin-top:2px;" class="profit-down">⏳ 参考预估：预计2-4周可能回本</div>
+    </div>
+    <div style="background:#f0f4ff;border-radius:8px;padding:10px 12px;margin-bottom:10px;">
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:4px;">
+        <span class="signal-item signal-bearish">🔴 MA 空头排列</span>
+        <span class="signal-item signal-bearish">🔴 MACD 死叉</span>
+        <span class="signal-item signal-bullish">🟢 KDJ 超卖区</span>
+        <span class="signal-item signal-neutral">🟡 RSI 弱势区</span>
+      </div>
+      <div style="margin-top:6px;cursor:pointer;" onclick="var c=this.querySelector('.dc');c.style.display=c.style.display==='block'?'none':'block';this.querySelector('.dt').style.display=c.style.display==='block'?'none':'inline';">
+        <span class="dt" style="font-size:11px;color:#4a69bd;">📊 查看原始数值 ›</span>
+        <div class="dc" style="display:none;font-size:10px;color:#999;margin-top:4px;line-height:1.5;">MA5:221.3 MA20:225.8 | MACD:-3.2 | KDJ:K32/D38/J20 | RSI6:38.2</div>
+      </div>
+    </div>
+    <div class="ai-analysis">
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;">
+        <span style="width:8px;height:8px;border-radius:50%;background:#ffa502;display:inline-block;"></span>
+        <span style="font-size:12px;font-weight:600;padding:2px 8px;border-radius:10px;background:rgba(255,165,2,0.1);color:#ffa502;">⏳ 底部震荡</span>
+        <span style="font-size:12px;color:#4a69bd;cursor:pointer;border:1px solid #4a69bd;padding:2px 10px;border-radius:12px;margin-left:auto;" onclick="alert('正在刷新AI分析...')">🔄 刷新</span>
+      </div>
+      <div style="font-size:13px;line-height:1.6;color:#555;">
+        <b style="color:#1a1a2e;">📊 参考方案：继续持有</b>，买入逻辑未变。<br>
+        <span style="font-size:12px;color:#e67e22;background:rgba(230,126,34,0.08);border:1px solid rgba(230,126,34,0.2);border-radius:6px;padding:4px 8px;display:inline-block;margin:4px 0;">⚠️ 注意：止损线210距当前仅3.9%，密切关注</span>
+      </div>
+      <div style="font-size:11px;color:#999;margin-top:8px;display:flex;justify-content:space-between;align-items:center;"><span style="font-size:11px;font-weight:600;padding:2px 6px;border-radius:4px;background:rgba(255,165,2,0.1);color:#e6960a;">🟡 中置信 65%（震荡环境已下调10%）</span><span style="font-size:12px;color:#4a69bd;cursor:pointer;">查看推理 ›</span></div>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:12px;">
+      <button onclick="showDeepReport()" style="flex:1;padding:10px;border:none;border-radius:8px;background:#4a69bd;color:#fff;font-size:13px;font-weight:600;cursor:pointer;">📋 生成深度报告</button>
+      <button onclick="showBacktest()" style="flex:1;padding:10px;border:none;border-radius:8px;background:#9b59b6;color:#fff;font-size:13px;font-weight:600;cursor:pointer;">📈 历史回测</button>
+    </div>
+  </div>
+
+  <!-- Stock Card 3 - 比亚迪 -->
+  <div class="stock-card" style="margin:0 12px 12px;">
+    <div class="stock-header">
+      <div><span style="font-size:16px;font-weight:600;">比亚迪</span><span style="font-size:12px;color:#999;margin-left:6px;">002594</span></div>
+      <div style="text-align:right;"><div style="font-size:20px;font-weight:700;" class="profit-down">245.80</div><span style="font-size:13px;padding:2px 8px;border-radius:4px;background:rgba(255,71,87,0.1);color:#ff4757;">-3.52%</span></div>
+    </div>
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;">
+      <span style="font-size:10px;padding:2px 6px;border-radius:4px;background:rgba(255,165,2,0.1);color:#e6960a;">PE 45%分位 合理</span>
+      <span style="font-size:10px;padding:2px 6px;border-radius:4px;background:rgba(255,165,2,0.1);color:#e6960a;">PB 52%分位 合理</span>
+    </div>
+    <div class="stock-info">
+      <div class="info-item"><div class="info-label">成本价</div><div class="info-value">260.00</div></div>
+      <div class="info-item"><div class="info-label">持有</div><div class="info-value">100股</div></div>
+      <div class="info-item"><div class="info-label">盈亏</div><div class="info-value profit-down">-1,420</div></div>
+      <div class="info-item"><div class="info-label">盈亏比</div><div class="info-value profit-down">-5.46%</div></div>
+    </div>
+    <div style="padding:8px 12px;border:1px dashed #ff4757;border-radius:8px;margin-bottom:10px;display:flex;justify-content:space-between;align-items:center;">
+      <span style="font-size:12px;color:#555;">🛡️ 止损线：250.00（已跌破）</span>
+      <span style="font-size:10px;padding:2px 8px;border-radius:8px;background:rgba(255,71,87,0.1);color:#ff4757;font-weight:600;">🔴 触发</span>
+    </div>
+    <div style="padding:8px 12px;background:#fafafa;border-radius:8px;margin-bottom:10px;font-size:12px;color:#666;">
+      <div>📅 已持仓 <b style="color:#333;">18天</b></div>
+      <div style="font-size:11px;margin-top:2px;" class="profit-down">⏳ 参考预估：若跌破支撑需重新评估</div>
+    </div>
+    <div style="background:#f0f4ff;border-radius:8px;padding:10px 12px;margin-bottom:10px;">
+      <div style="display:flex;gap:6px;flex-wrap:wrap;">
+        <span class="signal-item signal-bearish">🔴 MA 跌破均线</span>
+        <span class="signal-item signal-bearish">🔴 MACD 死叉加深</span>
+        <span class="signal-item signal-bearish">🔴 KDJ 超卖</span>
+        <span class="signal-item signal-bearish">🔴 RSI 超卖区</span>
+      </div>
+      <div style="margin-top:6px;cursor:pointer;" onclick="var c=this.querySelector('.dc');c.style.display=c.style.display==='block'?'none':'block';this.querySelector('.dt').style.display=c.style.display==='block'?'none':'inline';">
+        <span class="dt" style="font-size:11px;color:#4a69bd;">📊 查看原始数值 ›</span>
+        <div class="dc" style="display:none;font-size:10px;color:#999;margin-top:4px;line-height:1.5;">MA5:250.6 MA20:258.3 | MACD:-5.8 | KDJ:K22/D30/J6 | RSI6:28.7</div>
+      </div>
+    </div>
+    <div class="ai-analysis">
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;">
+        <span style="width:8px;height:8px;border-radius:50%;background:#ff4757;display:inline-block;"></span>
+        <span style="font-size:12px;font-weight:600;padding:2px 8px;border-radius:10px;background:rgba(255,71,87,0.1);color:#ff4757;">⚠️ 跌破支撑</span>
+        <span style="font-size:12px;color:#4a69bd;cursor:pointer;border:1px solid #4a69bd;padding:2px 10px;border-radius:12px;margin-left:auto;" onclick="alert('正在刷新AI分析...')">🔄 刷新</span>
+      </div>
+      <div style="font-size:12px;color:#e67e22;background:rgba(230,126,34,0.08);border:1px solid rgba(230,126,34,0.2);border-radius:6px;padding:6px 10px;margin-bottom:8px;line-height:1.5;">⚠️ 量价背离：近3日成交量放大但股价持续下跌，警惕主力出货</div>
+      <div style="font-size:13px;line-height:1.6;color:#555;">
+        <b style="color:#1a1a2e;">📊 参考方案：减仓50%</b>，跌破关键支撑位250，买入逻辑已动摇。先出50股，剩余50股观察3日，若不能收回250则清仓。
+      </div>
+      <div style="font-size:11px;color:#999;margin-top:8px;display:flex;justify-content:space-between;align-items:center;"><span style="font-size:11px;font-weight:600;padding:2px 6px;border-radius:4px;background:rgba(255,165,2,0.1);color:#e6960a;">🟡 中置信 72%</span><span style="font-size:12px;color:#4a69bd;cursor:pointer;">查看推理 ›</span></div>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:12px;">
+      <button onclick="showDeepReport()" style="flex:1;padding:10px;border:none;border-radius:8px;background:#4a69bd;color:#fff;font-size:13px;font-weight:600;cursor:pointer;">📋 生成深度报告</button>
+      <button onclick="showBacktest()" style="flex:1;padding:10px;border:none;border-radius:8px;background:#9b59b6;color:#fff;font-size:13px;font-weight:600;cursor:pointer;">📈 历史回测</button>
+    </div>
+  </div>
+  </div><!-- end positionList -->
+
+  <!-- Watch List (hidden by default) -->
+  <div id="watchList" style="display:none;">
+    <!-- Watch Item 1 - 中际旭创 -->
+    <div class="stock-card" style="margin:0 12px 12px;">
+      <div class="stock-header">
+        <div><span style="font-size:16px;font-weight:600;">中际旭创</span><span style="font-size:12px;color:#999;margin-left:6px;">300308</span></div>
+        <div style="text-align:right;"><div style="font-size:20px;font-weight:700;" class="profit-up">128.50</div><span style="font-size:13px;padding:2px 8px;border-radius:4px;background:rgba(255,71,87,0.1);color:#ff4757;">+4.12%</span></div>
+      </div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;">
+        <span style="font-size:10px;padding:2px 6px;border-radius:4px;background:rgba(46,213,115,0.1);color:#2ed573;">PE 22%分位 低估</span>
+        <span style="font-size:10px;padding:2px 6px;border-radius:4px;background:rgba(255,165,2,0.1);color:#e6960a;">PB 45%分位 合理</span>
+        <span style="font-size:10px;padding:2px 6px;border-radius:4px;background:#fff3e0;color:#ff9800;">短期关注 1-2周</span>
+      </div>
+      <div style="display:flex;gap:12px;padding:6px 10px;background:rgba(74,105,189,0.08);border-radius:8px;margin-bottom:10px;">
+        <div style="flex:1;text-align:center;"><div style="font-size:10px;color:#999;">目标价位</div><div style="font-size:13px;font-weight:700;color:#ff4757;">138 - 152</div></div>
+        <div style="flex:1;text-align:center;"><div style="font-size:10px;color:#999;">预估上升空间</div><div style="font-size:13px;font-weight:700;color:#ff4757;">+7.4% ~ +18.3%</div></div>
+      </div>
+      <div style="background:#f0f4ff;border-radius:8px;padding:10px 12px;margin-bottom:10px;">
+        <div style="display:flex;gap:6px;flex-wrap:wrap;">
+          <span class="signal-item signal-bullish">🟢 MA 多头排列</span>
+          <span class="signal-item signal-bullish">🟢 MACD 金叉</span>
+          <span class="signal-item signal-bullish">🟢 放量突破</span>
+          <span class="signal-item signal-bullish">🟢 RSI 强势区</span>
+        </div>
+        <div style="margin-top:6px;cursor:pointer;" onclick="var c=this.querySelector('.dc');c.style.display=c.style.display==='block'?'none':'block';this.querySelector('.dt').style.display=c.style.display==='block'?'none':'inline';">
+          <span class="dt" style="font-size:11px;color:#4a69bd;">📊 查看原始数值 ›</span>
+          <div class="dc" style="display:none;font-size:10px;color:#999;margin-top:4px;line-height:1.5;">MA5:126.8 MA20:121.5 | MACD:+3.6 | KDJ:K72/D58/J100 | RSI6:65.2</div>
+        </div>
+      </div>
+      <div class="ai-analysis">
+        <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;">
+          <span style="width:8px;height:8px;border-radius:50%;background:#2ed573;display:inline-block;"></span>
+          <span style="font-size:12px;font-weight:600;padding:2px 8px;border-radius:10px;background:rgba(255,71,87,0.1);color:#ff4757;">🔥 放量突破</span>
+          <span style="font-size:12px;color:#4a69bd;cursor:pointer;border:1px solid #4a69bd;padding:2px 10px;border-radius:12px;margin-left:auto;">🔄 刷新</span>
+        </div>
+        <div style="font-size:13px;line-height:1.6;color:#555;">
+          <b style="color:#1a1a2e;">📊 参考建仓方案：</b>光模块龙头，受益AI算力需求爆发。技术面放量突破前高，MACD金叉确认。<br>
+          💰 <b>参考买入区间</b>：125-130元，分2批建仓<br>
+          🎯 <b>目标价位</b>：138-152元（+7%~+18%）<br>
+          🛡️ <b>参考止损</b>：118元（-8%）
+        </div>
+        <div style="font-size:11px;color:#999;margin-top:8px;display:flex;justify-content:space-between;align-items:center;"><span style="font-size:11px;font-weight:600;padding:2px 6px;border-radius:4px;background:rgba(255,165,2,0.1);color:#e6960a;">🟡 中置信 75%</span><span style="font-size:12px;color:#4a69bd;cursor:pointer;">查看推理 ›</span></div>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:12px;">
+        <button onclick="quickBuy('中际旭创','300308','128.50','2026-03-21')" style="flex:1;padding:10px;border:none;border-radius:8px;background:#ff4757;color:#fff;font-size:13px;font-weight:600;cursor:pointer;">🛒 买入建仓</button>
+        <button onclick="showDeepReport()" style="flex:1;padding:10px;border:none;border-radius:8px;background:#4a69bd;color:#fff;font-size:13px;font-weight:600;cursor:pointer;">📋 深度报告</button>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:8px;">
+        <button onclick="showBacktest()" style="flex:1;padding:10px;border:none;border-radius:8px;background:#9b59b6;color:#fff;font-size:13px;font-weight:600;cursor:pointer;">📈 历史回测</button>
+        <button onclick="this.closest('.stock-card').remove()" style="flex:1;padding:10px;border:1px solid #ddd;border-radius:8px;background:#fff;color:#999;font-size:13px;cursor:pointer;">取消关注</button>
+      </div>
+    </div>
+
+    <!-- Watch Item 2 - 招商银行 -->
+    <div class="stock-card" style="margin:0 12px 12px;">
+      <div class="stock-header">
+        <div><span style="font-size:16px;font-weight:600;">招商银行</span><span style="font-size:12px;color:#999;margin-left:6px;">600036</span></div>
+        <div style="text-align:right;"><div style="font-size:20px;font-weight:700;" class="profit-up">38.20</div><span style="font-size:13px;padding:2px 8px;border-radius:4px;background:rgba(255,71,87,0.1);color:#ff4757;">+1.06%</span></div>
+      </div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px;">
+        <span style="font-size:10px;padding:2px 6px;border-radius:4px;background:rgba(46,213,115,0.1);color:#2ed573;">PE 18%分位 低估</span>
+        <span style="font-size:10px;padding:2px 6px;border-radius:4px;background:rgba(46,213,115,0.1);color:#2ed573;">PB 15%分位 低估</span>
+        <span style="font-size:10px;padding:2px 6px;border-radius:4px;background:#e8f5e9;color:#2ed573;">中期关注 1-3个月</span>
+      </div>
+      <div style="display:flex;gap:12px;padding:6px 10px;background:rgba(74,105,189,0.08);border-radius:8px;margin-bottom:10px;">
+        <div style="flex:1;text-align:center;"><div style="font-size:10px;color:#999;">目标价位</div><div style="font-size:13px;font-weight:700;color:#ff4757;">42 - 46</div></div>
+        <div style="flex:1;text-align:center;"><div style="font-size:10px;color:#999;">预估上升空间</div><div style="font-size:13px;font-weight:700;color:#ff4757;">+9.9% ~ +20.4%</div></div>
+      </div>
+      <div style="background:#f0f4ff;border-radius:8px;padding:10px 12px;margin-bottom:10px;">
+        <div style="display:flex;gap:6px;flex-wrap:wrap;">
+          <span class="signal-item signal-bullish">🟢 MA 底部放量</span>
+          <span class="signal-item signal-neutral">🟡 MACD 即将金叉</span>
+          <span class="signal-item signal-bullish">🟢 KDJ 超卖反弹</span>
+          <span class="signal-item signal-neutral">🟡 RSI 中性区</span>
+        </div>
+        <div style="margin-top:6px;cursor:pointer;" onclick="var c=this.querySelector('.dc');c.style.display=c.style.display==='block'?'none':'block';this.querySelector('.dt').style.display=c.style.display==='block'?'none':'inline';">
+          <span class="dt" style="font-size:11px;color:#4a69bd;">📊 查看原始数值 ›</span>
+          <div class="dc" style="display:none;font-size:10px;color:#999;margin-top:4px;line-height:1.5;">MA5:37.9 MA20:37.2 | MACD:-0.3 | KDJ:K45/D40/J55 | RSI6:48.6</div>
+        </div>
+      </div>
+      <div class="ai-analysis">
+        <div style="display:flex;align-items:center;gap:6px;margin-bottom:8px;">
+          <span style="width:8px;height:8px;border-radius:50%;background:#2ed573;display:inline-block;"></span>
+          <span style="font-size:12px;font-weight:600;padding:2px 8px;border-radius:10px;background:rgba(46,213,115,0.1);color:#2ed573;">💎 低估值+高股息</span>
+          <span style="font-size:12px;color:#4a69bd;cursor:pointer;border:1px solid #4a69bd;padding:2px 10px;border-radius:12px;margin-left:auto;">🔄 刷新</span>
+        </div>
+        <div style="font-size:13px;line-height:1.6;color:#555;">
+          <b style="color:#1a1a2e;">📊 参考建仓方案：</b>银行板块估值修复，股息率5.2%，PE/PB双低估。<br>
+          💰 <b>参考买入区间</b>：36-39元，分3批建仓（底仓+加仓）<br>
+          🎯 <b>目标价位</b>：42-46元（+10%~+20%）<br>
+          🛡️ <b>参考止损</b>：34元（-11%）
+        </div>
+        <div style="font-size:11px;color:#999;margin-top:8px;display:flex;justify-content:space-between;align-items:center;"><span style="font-size:11px;font-weight:600;padding:2px 6px;border-radius:4px;background:rgba(46,213,115,0.1);color:#2ed573;">🟢 高置信 82%</span><span style="font-size:12px;color:#4a69bd;cursor:pointer;">查看推理 ›</span></div>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:12px;">
+        <button onclick="quickBuy('招商银行','600036','38.20','2026-03-21')" style="flex:1;padding:10px;border:none;border-radius:8px;background:#ff4757;color:#fff;font-size:13px;font-weight:600;cursor:pointer;">🛒 买入建仓</button>
+        <button onclick="showDeepReport()" style="flex:1;padding:10px;border:none;border-radius:8px;background:#4a69bd;color:#fff;font-size:13px;font-weight:600;cursor:pointer;">📋 深度报告</button>
+      </div>
+      <div style="display:flex;gap:8px;margin-top:8px;">
+        <button onclick="showBacktest()" style="flex:1;padding:10px;border:none;border-radius:8px;background:#9b59b6;color:#fff;font-size:13px;font-weight:600;cursor:pointer;">📈 历史回测</button>
+        <button onclick="this.closest('.stock-card').remove()" style="flex:1;padding:10px;border:1px solid #ddd;border-radius:8px;background:#fff;color:#999;font-size:13px;cursor:pointer;">取消关注</button>
+      </div>
+    </div>
+    <div style="text-align:center;padding:16px;font-size:12px;color:#bbb;">从「今日关注」点击「加入关注」添加更多</div>
+  </div>
+
+  <!-- FAB for adding position -->
+  <button onclick="showModal()" style="position:fixed;bottom:80px;right:16px;width:52px;height:52px;border-radius:50%;background:#4a69bd;color:#fff;border:none;font-size:28px;cursor:pointer;box-shadow:0 4px 12px rgba(74,105,189,0.4);z-index:50;display:flex;align-items:center;justify-content:center;">+</button>
+
+  <div style="height:80px;"></div>
+</div>
+
+<!-- ==================== 4. CHAT PAGE ==================== -->
+<div id="chatPage" class="page" style="padding-bottom:140px;">
+  <div style="background:#1a1a2e;color:#fff;padding:12px 16px;text-align:center;font-size:17px;font-weight:600;position:sticky;top:0;z-index:10;">AI对话</div>
+  <div style="padding:16px;">
+    <div style="max-width:80%;margin-bottom:16px;">
+      <div style="padding:12px 16px;border-radius:16px;font-size:14px;line-height:1.6;background:#fff;color:#333;border-bottom-left-radius:4px;box-shadow:0 1px 4px rgba(0,0,0,0.08);">你好，我是你的AI投资陪伴助手。现在支持商品传导链分析、周期监控、事件日历等新功能，有什么想了解的？</div>
+      <div style="font-size:11px;color:#999;margin-top:4px;">09:30</div>
+    </div>
+    <div style="max-width:80%;margin-bottom:16px;margin-left:auto;">
+      <div style="padding:12px 16px;border-radius:16px;font-size:14px;line-height:1.6;background:#4a69bd;color:#fff;border-bottom-right-radius:4px;">商品传导链现在什么情况？黄金涨了对其他品种有什么影响？</div>
+      <div style="font-size:11px;color:#999;margin-top:4px;text-align:right;">10:15</div>
+    </div>
+    <div style="max-width:80%;margin-bottom:16px;">
+      <div style="padding:12px 16px;border-radius:16px;font-size:14px;line-height:1.6;background:#fff;color:#333;border-bottom-left-radius:4px;box-shadow:0 1px 4px rgba(0,0,0,0.08);">
+        📦 <b>商品传导链当前状态：</b><br><br>
+        🟢 <b>黄金(Au)</b> → 已激活，近期受避险情绪推动上涨<br>
+        🟢 <b>白银(Ag)</b> → 已激活，跟随黄金联动上涨<br>
+        🟡 <b>有色(Cu)</b> → 传导中，铜价开始跟涨但力度偏弱<br>
+        ⚪ 煤炭/化工/橡胶/原油 → 尚未激活<br><br>
+        📊 <b>历史规律：</b>黄金→白银传导通常1-2周，白银→有色约2-4周。当前有色节点正在传导中，如果确认激活，后续煤炭化工可能跟进。<br><br>
+        💡 <b>参考方案：</b>关注有色板块ETF，若铜价突破关键位可能确认传导链延伸。
+      </div>
+      <div style="font-size:11px;color:#999;margin-top:4px;">10:16</div>
+    </div>
+    <div style="max-width:80%;margin-bottom:16px;margin-left:auto;">
+      <div style="padding:12px 16px;border-radius:16px;font-size:14px;line-height:1.6;background:#4a69bd;color:#fff;border-bottom-right-radius:4px;">比亚迪跌了不少，我要不要卖掉？</div>
+      <div style="font-size:11px;color:#999;margin-top:4px;text-align:right;">10:20</div>
+    </div>
+    <div style="max-width:80%;margin-bottom:16px;">
+      <div style="padding:12px 16px;border-radius:16px;font-size:14px;line-height:1.6;background:#fff;color:#333;border-bottom-left-radius:4px;box-shadow:0 1px 4px rgba(0,0,0,0.08);">
+        我注意到你想卖出比亚迪，先帮你回顾一下：<br><br>
+        📋 <b>买入逻辑回顾</b><br>
+        你在260元买入，当时的逻辑是看好新能源车渗透率提升。<br><br>
+        🧠 <b>当前判断</b><br>
+        这次下跌主要是大盘系统性回调，比亚迪基本面没有恶化。你的卖出冲动更像是<span style="color:#ff9800;font-weight:600;">情绪驱动</span>而非逻辑变化。<br><br>
+        📉 <b>最坏情况预估</b><br>
+        如果继续下跌，230附近有强支撑（前期平台），最多再亏约6%。<br><br>
+        参考方案：可以先减仓50%降低焦虑，剩余仓位观察3天。
+      </div>
+      <div style="font-size:11px;color:#999;margin-top:4px;">10:21</div>
+    </div>
+    <div style="max-width:80%;margin-bottom:16px;margin-left:auto;">
+      <div style="padding:12px 16px;border-radius:16px;font-size:14px;line-height:1.6;background:#4a69bd;color:#fff;border-bottom-right-radius:4px;">那茅台呢，现在还能加仓吗？</div>
+      <div style="font-size:11px;color:#999;margin-top:4px;text-align:right;">10:25</div>
+    </div>
+    <div style="max-width:80%;margin-bottom:16px;">
+      <div style="padding:12px 16px;border-radius:16px;font-size:14px;line-height:1.6;background:#fff;color:#333;border-bottom-left-radius:4px;box-shadow:0 1px 4px rgba(0,0,0,0.08);">
+        贵州茅台当前1,856元，处于主升浪中段。<br><br>
+        📊 参考方案：当前位置不太适合追加仓位，因为短期涨幅已较大。如果回调到1,780-1,800区间，可以考虑分批加仓。<br><br>
+        置信度：72%
+      </div>
+      <div style="font-size:11px;color:#999;margin-top:4px;">10:26</div>
+    </div>
+  </div>
+  <div style="position:fixed;bottom:68px;left:50%;transform:translateX(-50%);width:100%;max-width:428px;background:#fff;padding:12px 16px;border-top:1px solid #eee;display:flex;gap:8px;">
+    <input style="flex:1;padding:10px 16px;border:1px solid #e0e0e0;border-radius:20px;font-size:14px;outline:none;" placeholder="输入消息...">
+    <button style="padding:10px 20px;background:#4a69bd;color:#fff;border:none;border-radius:20px;font-size:14px;cursor:pointer;">发送</button>
+  </div>
+</div>
+
+<!-- ==================== 5. MESSAGE CENTER ==================== -->
+<div id="messagePage" class="page" style="padding-bottom:80px;">
+  <div style="position:sticky;top:0;z-index:10;">
+    <div style="background:#1a1a2e;color:#fff;padding:12px 16px;text-align:center;font-size:17px;font-weight:600;">消息中心</div>
+    <div style="display:flex;gap:8px;padding:10px 16px;overflow-x:auto;background:#f5f6fa;border-bottom:1px solid #eee;">
+      <span style="padding:5px 12px;border-radius:14px;font-size:12px;background:#4a69bd;color:#fff;white-space:nowrap;">全部</span>
+      <span style="padding:5px 12px;border-radius:14px;font-size:12px;border:1px solid #ddd;background:#fff;white-space:nowrap;">⚠️ 风险</span>
+      <span style="padding:5px 12px;border-radius:14px;font-size:12px;border:1px solid #ddd;background:#fff;white-space:nowrap;">📈 市场</span>
+      <span style="padding:5px 12px;border-radius:14px;font-size:12px;border:1px solid #ddd;background:#fff;white-space:nowrap;">🔍 追踪</span>
+      <span style="padding:5px 12px;border-radius:14px;font-size:12px;border:1px solid #ddd;background:#fff;white-space:nowrap;">📊 分析</span>
+      <span style="padding:5px 12px;border-radius:14px;font-size:12px;border:1px solid #ddd;background:#fff;white-space:nowrap;">🏹 机会</span>
+    </div>
+  </div>
+  <div style="padding:0 16px;">
+    <div style="background:#fff;border-radius:10px;padding:14px;margin-bottom:10px;box-shadow:0 1px 4px rgba(0,0,0,0.05);border-left:3px solid #4a69bd;">
+      <div style="font-size:11px;padding:2px 8px;border-radius:8px;display:inline-block;margin-bottom:6px;background:#fff3e0;color:#ff9800;">🛡️ 止损提醒</div>
+      <div style="font-size:15px;font-weight:600;margin-bottom:4px;">比亚迪跌破止损线</div>
+      <div style="font-size:13px;color:#666;line-height:1.5;">比亚迪(002594)当前价格245.80，已跌破您设置的止损线250.00，请关注。</div>
+      <div style="font-size:11px;color:#bbb;margin-top:6px;">10分钟前</div>
+    </div>
+    <div style="background:#fff;border-radius:10px;padding:14px;margin-bottom:10px;box-shadow:0 1px 4px rgba(0,0,0,0.05);border-left:3px solid #4a69bd;">
+      <div style="font-size:11px;padding:2px 8px;border-radius:8px;display:inline-block;margin-bottom:6px;background:#e8f0fe;color:#4a69bd;">🔄 轮动切换</div>
+      <div style="font-size:15px;font-weight:600;margin-bottom:4px;">板块轮动：P2→P1 科技成长</div>
+      <div style="font-size:13px;color:#666;line-height:1.5;">市场风格从周期价值切换至科技成长，可关注半导体、AI算力方向。</div>
+      <div style="font-size:11px;color:#bbb;margin-top:6px;">30分钟前</div>
+    </div>
+    <div style="background:#fff;border-radius:10px;padding:14px;margin-bottom:10px;box-shadow:0 1px 4px rgba(0,0,0,0.05);border-left:3px solid #4a69bd;">
+      <div style="font-size:11px;padding:2px 8px;border-radius:8px;display:inline-block;margin-bottom:6px;background:#e8f5e9;color:#2ed573;">📦 传导链激活</div>
+      <div style="font-size:15px;font-weight:600;margin-bottom:4px;">有色金属节点激活</div>
+      <div style="font-size:13px;color:#666;line-height:1.5;">商品传导链：有色(Cu)节点从"传导中"变为"激活"，后续关注煤炭化工。</div>
+      <div style="font-size:11px;color:#bbb;margin-top:6px;">1小时前</div>
+    </div>
+    <div style="background:#fff;border-radius:10px;padding:14px;margin-bottom:10px;box-shadow:0 1px 4px rgba(0,0,0,0.05);">
+      <div style="font-size:11px;padding:2px 8px;border-radius:8px;display:inline-block;margin-bottom:6px;background:#e8f0fe;color:#4a69bd;">📅 事件窗口</div>
+      <div style="font-size:15px;font-weight:600;margin-bottom:4px;">美联储议息建仓窗口</div>
+      <div style="font-size:13px;color:#666;line-height:1.5;">3月22日美联储议息会议前，黄金、银行板块可能出现建仓机会。</div>
+      <div style="font-size:11px;color:#bbb;margin-top:6px;">2小时前</div>
+    </div>
+    <div style="background:#fff;border-radius:10px;padding:14px;margin-bottom:10px;box-shadow:0 1px 4px rgba(0,0,0,0.05);">
+      <div style="font-size:11px;padding:2px 8px;border-radius:8px;display:inline-block;margin-bottom:6px;background:#e8f5e9;color:#2ed573;">🔄 周期底部</div>
+      <div style="font-size:15px;font-weight:600;margin-bottom:4px;">豆粕ETF底部信号</div>
+      <div style="font-size:13px;color:#666;line-height:1.5;">豆粕ETF(159985)进入6年周期底部区间，近3年最低18%分位。</div>
+      <div style="font-size:11px;color:#bbb;margin-top:6px;">3小时前</div>
+    </div>
+    <div style="background:#fff;border-radius:10px;padding:14px;margin-bottom:10px;box-shadow:0 1px 4px rgba(0,0,0,0.05);">
+      <div style="font-size:11px;padding:2px 8px;border-radius:8px;display:inline-block;margin-bottom:6px;background:#fff3e0;color:#ff9800;">📍 关注追踪</div>
+      <div style="font-size:15px;font-weight:600;margin-bottom:4px;">中际旭创3天涨+6.2%</div>
+      <div style="font-size:13px;color:#666;line-height:1.5;">您关注的中际旭创(300308)近3天累计上涨6.2%，接近短期目标价138。</div>
+      <div style="font-size:11px;color:#bbb;margin-top:6px;">4小时前</div>
+    </div>
+    <div style="background:#fff;border-radius:10px;padding:14px;margin-bottom:10px;box-shadow:0 1px 4px rgba(0,0,0,0.05);">
+      <div style="font-size:11px;padding:2px 8px;border-radius:8px;display:inline-block;margin-bottom:6px;background:#fce4ec;color:#e91e63;">🎯 目标价提醒</div>
+      <div style="font-size:15px;font-weight:600;margin-bottom:4px;">茅台接近目标价</div>
+      <div style="font-size:13px;color:#666;line-height:1.5;">贵州茅台(600519)当前1,856，距目标价1,920仅差3.4%。</div>
+      <div style="font-size:11px;color:#bbb;margin-top:6px;">5小时前</div>
+    </div>
+    <div style="background:#fff;border-radius:10px;padding:14px;margin-bottom:10px;box-shadow:0 1px 4px rgba(0,0,0,0.05);">
+      <div style="font-size:11px;padding:2px 8px;border-radius:8px;display:inline-block;margin-bottom:6px;background:#fff3e0;color:#ff9800;">⚡ 波动提醒</div>
+      <div style="font-size:15px;font-weight:600;margin-bottom:4px;">比亚迪跌超3%</div>
+      <div style="font-size:13px;color:#666;line-height:1.5;">比亚迪(002594)今日跌幅-3.52%，触发波动提醒阈值。</div>
+      <div style="font-size:11px;color:#bbb;margin-top:6px;">6小时前</div>
+    </div>
+    <div style="background:#fff;border-radius:10px;padding:14px;margin-bottom:10px;box-shadow:0 1px 4px rgba(0,0,0,0.05);">
+      <div style="font-size:11px;padding:2px 8px;border-radius:8px;display:inline-block;margin-bottom:6px;background:#e8f0fe;color:#4a69bd;">📊 定时分析</div>
+      <div style="font-size:15px;font-weight:600;margin-bottom:4px;">贵州茅台主升浪确认</div>
+      <div style="font-size:13px;color:#666;line-height:1.5;">贵州茅台(600519)处于主升浪中段，量价配合良好。参考方案：继续持有，目标区间1,920-2,000。</div>
+      <div style="font-size:11px;color:#bbb;margin-top:6px;">7小时前</div>
+    </div>
+    <div style="background:#fff;border-radius:10px;padding:14px;margin-bottom:10px;box-shadow:0 1px 4px rgba(0,0,0,0.05);">
+      <div style="font-size:11px;padding:2px 8px;border-radius:8px;display:inline-block;margin-bottom:6px;background:#fce4ec;color:#e91e63;">🔄 自我修正</div>
+      <div style="font-size:15px;font-weight:600;margin-bottom:4px;">宁德时代分析修正</div>
+      <div style="font-size:13px;color:#666;line-height:1.5;">上次分析预计本周反弹，实际继续震荡。修正原因：储能政策延迟发布。修正后参考方案：继续持有等待催化。</div>
+      <div style="font-size:11px;color:#bbb;margin-top:6px;">昨天 15:00</div>
+    </div>
+    <div style="background:#fff;border-radius:10px;padding:14px;margin-bottom:10px;box-shadow:0 1px 4px rgba(0,0,0,0.05);">
+      <div style="font-size:11px;padding:2px 8px;border-radius:8px;display:inline-block;margin-bottom:6px;background:#e3f2fd;color:#1565c0;">🏹 埋伏推荐</div>
+      <div style="font-size:15px;font-weight:600;margin-bottom:4px;">中国平安低位埋伏</div>
+      <div style="font-size:13px;color:#666;line-height:1.5;">中国平安(601318)当前42.5元，处于历史低位，PE仅7.8倍，股息率6.1%。参考买入区间40-43元，目标价52-58元。</div>
+      <div style="font-size:11px;color:#bbb;margin-top:6px;">昨天 10:00</div>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== 6. PROFILE PAGE ==================== -->
+<div id="profilePage" class="page" style="padding-bottom:80px;">
+  <div style="background:linear-gradient(135deg,#1a1a2e 0%,#16213e 100%);color:#fff;padding:32px 16px;text-align:center;">
+    <div style="width:64px;height:64px;border-radius:50%;background:#4a69bd;display:flex;align-items:center;justify-content:center;font-size:28px;margin:0 auto 8px;">👤</div>
+    <div style="font-size:18px;font-weight:600;">demo</div>
+  </div>
+  <div style="padding:16px;">
+    <div style="background:#fff;border-radius:12px;padding:16px;margin-bottom:12px;box-shadow:0 2px 8px rgba(0,0,0,0.06);">
+      <div style="font-size:14px;font-weight:700;margin-bottom:12px;">📊 每日关注准确率</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:8px;margin-bottom:12px;">
+        <div style="text-align:center;"><div style="font-size:11px;color:#999;">总推荐</div><div style="font-size:18px;font-weight:700;">86</div></div>
+        <div style="text-align:center;"><div style="font-size:11px;color:#999;">盈利</div><div style="font-size:18px;font-weight:700;color:#ff4757;">58</div></div>
+        <div style="text-align:center;"><div style="font-size:11px;color:#999;">亏损</div><div style="font-size:18px;font-weight:700;color:#2ed573;">28</div></div>
+        <div style="text-align:center;"><div style="font-size:11px;color:#999;">平均收益</div><div style="font-size:18px;font-weight:700;color:#ff4757;">+4.2%</div></div>
+      </div>
+      <div style="font-size:12px;color:#666;margin-bottom:6px;">准确率 67.4%</div>
+      <div style="height:8px;background:#f0f0f0;border-radius:4px;overflow:hidden;">
+        <div style="width:67.4%;height:100%;background:linear-gradient(to right,#4a69bd,#2ed573);border-radius:4px;"></div>
+      </div>
+    </div>
+    <div style="background:#fff;border-radius:12px;padding:16px;margin-bottom:12px;box-shadow:0 2px 8px rgba(0,0,0,0.06);">
+      <div style="font-size:14px;font-weight:700;margin-bottom:12px;">🥧 持仓板块分布</div>
+      <div style="display:flex;align-items:center;gap:16px;">
+        <div style="width:120px;height:120px;border-radius:50%;background:conic-gradient(#ff4757 0% 35%, #2ed573 35% 55%, #4a69bd 55% 75%, #ffa502 75% 90%, #9b59b6 90% 100%);flex-shrink:0;"></div>
+        <div style="font-size:12px;line-height:2;">
+          <div><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#ff4757;margin-right:4px;"></span>白酒 35%</div>
+          <div><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#2ed573;margin-right:4px;"></span>新能源 20%</div>
+          <div><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#4a69bd;margin-right:4px;"></span>银行 20%</div>
+          <div><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#ffa502;margin-right:4px;"></span>科技 15%</div>
+          <div><span style="display:inline-block;width:10px;height:10px;border-radius:2px;background:#9b59b6;margin-right:4px;"></span>周期品 10%</div>
+        </div>
+      </div>
+      <div style="font-size:11px;color:#e67e22;background:rgba(230,126,34,0.08);border-radius:6px;padding:6px 10px;margin-top:10px;">⚠️ 白酒板块占比35%，集中度偏高，宜适当分散</div>
+    </div>
+    <div style="background:#fff;border-radius:12px;padding:16px;margin-bottom:12px;box-shadow:0 2px 8px rgba(0,0,0,0.06);">
+      <div style="font-size:14px;font-weight:700;margin-bottom:8px;">📈 收益曲线</div>
+      <div style="display:flex;gap:8px;margin-bottom:12px;">
+        <span style="font-size:12px;padding:4px 12px;border-radius:12px;background:#4a69bd;color:#fff;">7天</span>
+        <span style="font-size:12px;padding:4px 12px;border-radius:12px;background:#f0f0f0;color:#666;">30天</span>
+        <span style="font-size:12px;padding:4px 12px;border-radius:12px;background:#f0f0f0;color:#666;">90天</span>
+      </div>
+      <svg viewBox="0 0 360 120" style="width:100%;height:auto;">
+        <defs><linearGradient id="cg" x1="0" y1="0" x2="0" y2="1"><stop offset="0%" stop-color="#4a69bd" stop-opacity="0.3"/><stop offset="100%" stop-color="#4a69bd" stop-opacity="0"/></linearGradient></defs>
+        <polygon points="0,90 50,80 100,70 150,65 200,55 250,45 300,40 360,30 360,120 0,120" fill="url(#cg)"/>
+        <polyline points="0,90 50,80 100,70 150,65 200,55 250,45 300,40 360,30" fill="none" stroke="#4a69bd" stroke-width="2"/>
+        <line x1="0" y1="120" x2="360" y2="120" stroke="#eee" stroke-width="1"/>
+        <text x="0" y="118" font-size="9" fill="#999">3/15</text>
+        <text x="170" y="118" font-size="9" fill="#999">3/18</text>
+        <text x="345" y="118" font-size="9" fill="#999">3/21</text>
+      </svg>
+    </div>
+    <div onclick="showSubPage('reviewLog')" style="background:#fff;padding:16px;border-radius:10px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;font-size:15px;cursor:pointer;">📝 操作复盘<span style="color:#ccc;">›</span></div>
+    <div onclick="showSubPage('historyReport')" style="background:#fff;padding:16px;border-radius:10px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;font-size:15px;cursor:pointer;">📊 历史参考记录<span style="color:#ccc;">›</span></div>
+    <div onclick="showSubPage('aiAccuracy')" style="background:#fff;padding:16px;border-radius:10px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;font-size:15px;cursor:pointer;">📈 AI准确率统计<span style="color:#ccc;">›</span></div>
+    <div onclick="showSubPage('analysisSetting')" style="background:#fff;padding:16px;border-radius:10px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;font-size:15px;cursor:pointer;">⚙️ 分析设置<span style="color:#ccc;">›</span></div>
+    <div onclick="showNotifSettings()" style="background:#fff;padding:16px;border-radius:10px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;font-size:15px;cursor:pointer;">🔔 通知设置<span style="color:#ccc;">›</span></div>
+    <div onclick="showSubPage('aboutApp')" style="background:#fff;padding:16px;border-radius:10px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;font-size:15px;cursor:pointer;">📱 关于<span style="color:#ccc;">›</span></div>
+    <div onclick="showPage('login')" style="background:#fff;padding:16px;border-radius:10px;margin-bottom:8px;display:flex;justify-content:center;align-items:center;font-size:15px;color:#ff4757;cursor:pointer;">🚪 退出登录</div>
+  </div>
+</div>
+
+<!-- ==================== 6b. NOTIFICATION SETTINGS PAGE ==================== -->
+<div id="notifSettingsPage" class="page" style="padding-bottom:80px;">
+  <div style="background:#1a1a2e;color:#fff;padding:12px 16px;display:flex;align-items:center;position:sticky;top:0;z-index:10;">
+    <span onclick="hideNotifSettings()" style="font-size:20px;cursor:pointer;margin-right:12px;">←</span>
+    <span style="font-size:17px;font-weight:600;">通知设置</span>
+  </div>
+  <div style="padding:16px;">
+    <div style="background:#fff;border-radius:12px;padding:4px 16px;box-shadow:0 2px 8px rgba(0,0,0,0.06);">
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:14px 0;border-bottom:1px solid #f0f0f0;">
+        <div><div style="font-size:14px;">目标价提醒</div><div style="font-size:11px;color:#999;margin-top:2px;">股价触及目标价时通知</div></div>
+        <div style="width:44px;height:24px;border-radius:12px;background:#4a69bd;position:relative;cursor:pointer;" onclick="toggleSwitch(this)"><div style="width:20px;height:20px;border-radius:50%;background:#fff;position:absolute;top:2px;right:2px;box-shadow:0 1px 3px rgba(0,0,0,0.2);"></div></div>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:14px 0;border-bottom:1px solid #f0f0f0;">
+        <div><div style="font-size:14px;">止损线提醒</div><div style="font-size:11px;color:#999;margin-top:2px;">股价跌破止损线时通知</div></div>
+        <div style="width:44px;height:24px;border-radius:12px;background:#4a69bd;position:relative;cursor:pointer;" onclick="toggleSwitch(this)"><div style="width:20px;height:20px;border-radius:50%;background:#fff;position:absolute;top:2px;right:2px;box-shadow:0 1px 3px rgba(0,0,0,0.2);"></div></div>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:14px 0;border-bottom:1px solid #f0f0f0;">
+        <div><div style="font-size:14px;">波动提醒</div><div style="font-size:11px;color:#999;margin-top:2px;">持仓涨跌幅超5%时通知</div></div>
+        <div style="width:44px;height:24px;border-radius:12px;background:#4a69bd;position:relative;cursor:pointer;" onclick="toggleSwitch(this)"><div style="width:20px;height:20px;border-radius:50%;background:#fff;position:absolute;top:2px;right:2px;box-shadow:0 1px 3px rgba(0,0,0,0.2);"></div></div>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:14px 0;border-bottom:1px solid #f0f0f0;">
+        <div><div style="font-size:14px;">每日关注推送</div><div style="font-size:11px;color:#999;margin-top:2px;">每日AI精选关注股票推送</div></div>
+        <div style="width:44px;height:24px;border-radius:12px;background:#4a69bd;position:relative;cursor:pointer;" onclick="toggleSwitch(this)"><div style="width:20px;height:20px;border-radius:50%;background:#fff;position:absolute;top:2px;right:2px;box-shadow:0 1px 3px rgba(0,0,0,0.2);"></div></div>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:14px 0;border-bottom:1px solid #f0f0f0;">
+        <div><div style="font-size:14px;">板块轮动切换</div><div style="font-size:11px;color:#999;margin-top:2px;">轮动阶段变化时通知</div></div>
+        <div style="width:44px;height:24px;border-radius:12px;background:#ccc;position:relative;cursor:pointer;" onclick="toggleSwitch(this)"><div style="width:20px;height:20px;border-radius:50%;background:#fff;position:absolute;top:2px;left:2px;box-shadow:0 1px 3px rgba(0,0,0,0.2);"></div></div>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:14px 0;border-bottom:1px solid #f0f0f0;">
+        <div><div style="font-size:14px;">传导链激活</div><div style="font-size:11px;color:#999;margin-top:2px;">商品传导链新节点激活时通知</div></div>
+        <div style="width:44px;height:24px;border-radius:12px;background:#4a69bd;position:relative;cursor:pointer;" onclick="toggleSwitch(this)"><div style="width:20px;height:20px;border-radius:50%;background:#fff;position:absolute;top:2px;right:2px;box-shadow:0 1px 3px rgba(0,0,0,0.2);"></div></div>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:14px 0;border-bottom:1px solid #f0f0f0;">
+        <div><div style="font-size:14px;">事件窗口期</div><div style="font-size:11px;color:#999;margin-top:2px;">事件进入建仓/出货窗口时通知</div></div>
+        <div style="width:44px;height:24px;border-radius:12px;background:#4a69bd;position:relative;cursor:pointer;" onclick="toggleSwitch(this)"><div style="width:20px;height:20px;border-radius:50%;background:#fff;position:absolute;top:2px;right:2px;box-shadow:0 1px 3px rgba(0,0,0,0.2);"></div></div>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:14px 0;">
+        <div><div style="font-size:14px;">周期底部信号</div><div style="font-size:11px;color:#999;margin-top:2px;">监控标的触发底部信号时通知</div></div>
+        <div style="width:44px;height:24px;border-radius:12px;background:#4a69bd;position:relative;cursor:pointer;" onclick="toggleSwitch(this)"><div style="width:20px;height:20px;border-radius:50%;background:#fff;position:absolute;top:2px;right:2px;box-shadow:0 1px 3px rgba(0,0,0,0.2);"></div></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== 6c. REVIEW LOG PAGE (操作复盘) ==================== -->
+<div id="reviewLogPage" class="page" style="padding-bottom:80px;">
+  <div style="background:#1a1a2e;color:#fff;padding:12px 16px;display:flex;align-items:center;position:sticky;top:0;z-index:10;">
+    <span onclick="hideSubPage()" style="font-size:20px;cursor:pointer;margin-right:12px;">←</span>
+    <span style="font-size:17px;font-weight:600;">📝 操作复盘</span>
+  </div>
+  <div style="padding:16px;">
+    <div style="display:flex;gap:8px;margin-bottom:16px;overflow-x:auto;">
+      <span style="padding:5px 12px;border-radius:14px;font-size:12px;background:#4a69bd;color:#fff;white-space:nowrap;">全部</span>
+      <span style="padding:5px 12px;border-radius:14px;font-size:12px;border:1px solid #ddd;background:#fff;white-space:nowrap;">买入</span>
+      <span style="padding:5px 12px;border-radius:14px;font-size:12px;border:1px solid #ddd;background:#fff;white-space:nowrap;">卖出</span>
+      <span style="padding:5px 12px;border-radius:14px;font-size:12px;border:1px solid #ddd;background:#fff;white-space:nowrap;">加仓</span>
+      <span style="padding:5px 12px;border-radius:14px;font-size:12px;border:1px solid #ddd;background:#fff;white-space:nowrap;">减仓</span>
+    </div>
+    <!-- Operation 1 -->
+    <div style="background:#fff;border-radius:12px;padding:16px;margin-bottom:12px;box-shadow:0 2px 8px rgba(0,0,0,0.06);">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+        <span style="font-size:11px;padding:2px 8px;border-radius:8px;background:rgba(255,71,87,0.1);color:#ff4757;">卖出·减仓50%</span>
+        <span style="font-size:11px;color:#bbb;">2026-03-21 10:32</span>
+      </div>
+      <div style="font-size:15px;font-weight:600;margin-bottom:6px;">比亚迪 002594</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:10px;">
+        <div><div style="font-size:10px;color:#999;">卖出价</div><div style="font-size:13px;font-weight:600;">245.80</div></div>
+        <div><div style="font-size:10px;color:#999;">数量</div><div style="font-size:13px;font-weight:600;">50股</div></div>
+        <div><div style="font-size:10px;color:#999;">盈亏</div><div style="font-size:13px;font-weight:600;color:#2ed573;">-710</div></div>
+      </div>
+      <div style="background:#f8f9ff;border-radius:8px;padding:10px;font-size:12px;color:#666;line-height:1.6;">
+        <b>操作原因：</b>跌破止损线250，技术面全面走弱<br>
+        <b>AI当时参考方案：</b>减仓50%，剩余观察3日<br>
+        <b>事后复盘：</b><span style="color:#2ed573;">✅ 正确决策</span> — 后续继续下跌至238
+      </div>
+    </div>
+    <!-- Operation 2 -->
+    <div style="background:#fff;border-radius:12px;padding:16px;margin-bottom:12px;box-shadow:0 2px 8px rgba(0,0,0,0.06);">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+        <span style="font-size:11px;padding:2px 8px;border-radius:8px;background:rgba(46,213,115,0.1);color:#2ed573;">买入·建仓</span>
+        <span style="font-size:11px;color:#bbb;">2026-03-18 14:15</span>
+      </div>
+      <div style="font-size:15px;font-weight:600;margin-bottom:6px;">中际旭创 300308</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:10px;">
+        <div><div style="font-size:10px;color:#999;">买入价</div><div style="font-size:13px;font-weight:600;">125.30</div></div>
+        <div><div style="font-size:10px;color:#999;">数量</div><div style="font-size:13px;font-weight:600;">200股</div></div>
+        <div><div style="font-size:10px;color:#999;">当前盈亏</div><div style="font-size:13px;font-weight:600;color:#ff4757;">+640</div></div>
+      </div>
+      <div style="background:#f8f9ff;border-radius:8px;padding:10px;font-size:12px;color:#666;line-height:1.6;">
+        <b>操作原因：</b>光模块放量突破，AI算力需求爆发<br>
+        <b>AI当时参考方案：</b>125-130区间分批建仓<br>
+        <b>事后复盘：</b><span style="color:#ff4757;">📈 浮盈+2.6%</span> — 趋势延续中
+      </div>
+    </div>
+    <!-- Operation 3 -->
+    <div style="background:#fff;border-radius:12px;padding:16px;margin-bottom:12px;box-shadow:0 2px 8px rgba(0,0,0,0.06);">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+        <span style="font-size:11px;padding:2px 8px;border-radius:8px;background:rgba(74,105,189,0.1);color:#4a69bd;">加仓</span>
+        <span style="font-size:11px;color:#bbb;">2026-03-10 09:45</span>
+      </div>
+      <div style="font-size:15px;font-weight:600;margin-bottom:6px;">贵州茅台 600519</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:10px;">
+        <div><div style="font-size:10px;color:#999;">买入价</div><div style="font-size:13px;font-weight:600;">1,780.00</div></div>
+        <div><div style="font-size:10px;color:#999;">数量</div><div style="font-size:13px;font-weight:600;">15股</div></div>
+        <div><div style="font-size:10px;color:#999;">当前盈亏</div><div style="font-size:13px;font-weight:600;color:#ff4757;">+1,140</div></div>
+      </div>
+      <div style="background:#f8f9ff;border-radius:8px;padding:10px;font-size:12px;color:#666;line-height:1.6;">
+        <b>操作原因：</b>回调至支撑位，主升浪逻辑未变<br>
+        <b>AI当时参考方案：</b>1,780以下可加仓<br>
+        <b>事后复盘：</b><span style="color:#ff4757;">📈 浮盈+4.3%</span> — 加仓时机准确
+      </div>
+    </div>
+    <div style="text-align:center;padding:16px;font-size:12px;color:#bbb;">— 仅显示近30天记录 —</div>
+  </div>
+</div>
+
+<!-- ==================== 6d. HISTORY REPORT PAGE (历史参考记录) ==================== -->
+<div id="historyReportPage" class="page" style="padding-bottom:80px;">
+  <div style="background:#1a1a2e;color:#fff;padding:12px 16px;display:flex;align-items:center;position:sticky;top:0;z-index:10;">
+    <span onclick="hideSubPage()" style="font-size:20px;cursor:pointer;margin-right:12px;">←</span>
+    <span style="font-size:17px;font-weight:600;">📊 历史参考记录</span>
+  </div>
+  <div style="padding:16px;">
+    <div style="background:#fff;border-radius:12px;padding:16px;margin-bottom:12px;box-shadow:0 2px 8px rgba(0,0,0,0.06);">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+        <div><span style="font-size:15px;font-weight:600;">贵州茅台</span><span style="font-size:11px;color:#999;margin-left:6px;">600519</span></div>
+        <span style="font-size:11px;color:#bbb;">2026-03-20</span>
+      </div>
+      <div style="font-size:13px;color:#555;line-height:1.6;margin-bottom:8px;">参考方案：继续持有，利润仓1,920止盈，底仓看2,000</div>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <span style="font-size:11px;padding:2px 8px;border-radius:8px;background:rgba(255,165,2,0.1);color:#e6960a;">🟡 置信78%</span>
+        <span style="font-size:11px;padding:2px 8px;border-radius:8px;background:rgba(46,213,115,0.1);color:#2ed573;">📈 验证中 +2.35%</span>
+      </div>
+    </div>
+    <div style="background:#fff;border-radius:12px;padding:16px;margin-bottom:12px;box-shadow:0 2px 8px rgba(0,0,0,0.06);">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+        <div><span style="font-size:15px;font-weight:600;">宁德时代</span><span style="font-size:11px;color:#999;margin-left:6px;">300750</span></div>
+        <span style="font-size:11px;color:#bbb;">2026-03-19</span>
+      </div>
+      <div style="font-size:13px;color:#555;line-height:1.6;margin-bottom:8px;">参考方案：继续持有，买入逻辑未变，注意止损线210</div>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <span style="font-size:11px;padding:2px 8px;border-radius:8px;background:rgba(255,165,2,0.1);color:#e6960a;">🟡 置信65%</span>
+        <span style="font-size:11px;padding:2px 8px;border-radius:8px;background:rgba(255,165,2,0.1);color:#e6960a;">⏳ 验证中 -1.28%</span>
+      </div>
+    </div>
+    <div style="background:#fff;border-radius:12px;padding:16px;margin-bottom:12px;box-shadow:0 2px 8px rgba(0,0,0,0.06);">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+        <div><span style="font-size:15px;font-weight:600;">比亚迪</span><span style="font-size:11px;color:#999;margin-left:6px;">002594</span></div>
+        <span style="font-size:11px;color:#bbb;">2026-03-15</span>
+      </div>
+      <div style="font-size:13px;color:#555;line-height:1.6;margin-bottom:8px;">参考方案：减仓50%，跌破支撑位250</div>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <span style="font-size:11px;padding:2px 8px;border-radius:8px;background:rgba(255,165,2,0.1);color:#e6960a;">🟡 置信72%</span>
+        <span style="font-size:11px;padding:2px 8px;border-radius:8px;background:rgba(46,213,115,0.1);color:#2ed573;">✅ 已验证·正确</span>
+      </div>
+    </div>
+    <div style="background:#fff;border-radius:12px;padding:16px;margin-bottom:12px;box-shadow:0 2px 8px rgba(0,0,0,0.06);">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+        <div><span style="font-size:15px;font-weight:600;">中际旭创</span><span style="font-size:11px;color:#999;margin-left:6px;">300308</span></div>
+        <span style="font-size:11px;color:#bbb;">2026-03-12</span>
+      </div>
+      <div style="font-size:13px;color:#555;line-height:1.6;margin-bottom:8px;">参考方案：125-130区间分批建仓，目标138-152</div>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <span style="font-size:11px;padding:2px 8px;border-radius:8px;background:rgba(255,165,2,0.1);color:#e6960a;">🟡 置信75%</span>
+        <span style="font-size:11px;padding:2px 8px;border-radius:8px;background:rgba(46,213,115,0.1);color:#2ed573;">📈 验证中 +4.12%</span>
+      </div>
+    </div>
+    <div style="text-align:center;padding:16px;font-size:12px;color:#bbb;">— 仅显示近30天记录 —</div>
+  </div>
+</div>
+
+<!-- ==================== 6e. AI ACCURACY PAGE (AI准确率统计) ==================== -->
+<div id="aiAccuracyPage" class="page" style="padding-bottom:80px;">
+  <div style="background:#1a1a2e;color:#fff;padding:12px 16px;display:flex;align-items:center;position:sticky;top:0;z-index:10;">
+    <span onclick="hideSubPage()" style="font-size:20px;cursor:pointer;margin-right:12px;">←</span>
+    <span style="font-size:17px;font-weight:600;">📈 AI准确率统计</span>
+  </div>
+  <div style="padding:16px;">
+    <div style="display:flex;gap:8px;margin-bottom:16px;">
+      <div style="flex:1;background:linear-gradient(135deg,#f8f9ff,#eef1ff);border-radius:12px;padding:16px;text-align:center;">
+        <div style="font-size:11px;color:#999;margin-bottom:4px;">总体准确率</div>
+        <div style="font-size:28px;font-weight:700;color:#4a69bd;">67.4%</div>
+      </div>
+      <div style="flex:1;background:linear-gradient(135deg,#fff8f8,#ffefef);border-radius:12px;padding:16px;text-align:center;">
+        <div style="font-size:11px;color:#999;margin-bottom:4px;">平均收益</div>
+        <div style="font-size:28px;font-weight:700;color:#ff4757;">+4.2%</div>
+      </div>
+    </div>
+    <div style="background:#fff;border-radius:12px;padding:16px;margin-bottom:12px;box-shadow:0 2px 8px rgba(0,0,0,0.06);">
+      <div style="font-size:14px;font-weight:700;margin-bottom:12px;">📊 分类准确率</div>
+      <table style="width:100%;border-collapse:collapse;font-size:12px;">
+        <thead><tr style="border-bottom:2px solid #f0f0f0;">
+          <th style="padding:8px 4px;text-align:left;color:#999;">类型</th>
+          <th style="padding:8px 4px;text-align:center;color:#999;">总数</th>
+          <th style="padding:8px 4px;text-align:center;color:#999;">正确</th>
+          <th style="padding:8px 4px;text-align:center;color:#999;">准确率</th>
+        </tr></thead>
+        <tbody>
+          <tr style="border-bottom:1px solid #f8f8f8;"><td style="padding:10px 4px;font-weight:600;">🔍 每日关注</td><td style="padding:10px 4px;text-align:center;">86</td><td style="padding:10px 4px;text-align:center;">58</td><td style="padding:10px 4px;text-align:center;color:#2ed573;">67.4%</td></tr>
+          <tr style="border-bottom:1px solid #f8f8f8;"><td style="padding:10px 4px;font-weight:600;">🛡️ 止损提醒</td><td style="padding:10px 4px;text-align:center;">12</td><td style="padding:10px 4px;text-align:center;">10</td><td style="padding:10px 4px;text-align:center;color:#2ed573;">83.3%</td></tr>
+          <tr style="border-bottom:1px solid #f8f8f8;"><td style="padding:10px 4px;font-weight:600;">🏹 埋伏推荐</td><td style="padding:10px 4px;text-align:center;">24</td><td style="padding:10px 4px;text-align:center;">15</td><td style="padding:10px 4px;text-align:center;color:#e6960a;">62.5%</td></tr>
+          <tr><td style="padding:10px 4px;font-weight:600;">📋 深度报告</td><td style="padding:10px 4px;text-align:center;">18</td><td style="padding:10px 4px;text-align:center;">13</td><td style="padding:10px 4px;text-align:center;color:#2ed573;">72.2%</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div style="background:#fff;border-radius:12px;padding:16px;margin-bottom:12px;box-shadow:0 2px 8px rgba(0,0,0,0.06);">
+      <div style="font-size:14px;font-weight:700;margin-bottom:12px;">📈 置信度 vs 实际准确率</div>
+      <div style="margin-bottom:10px;">
+        <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px;"><span>🟢 高置信（>80%）</span><span style="color:#2ed573;">实际准确率 78%</span></div>
+        <div style="height:6px;background:#f0f0f0;border-radius:3px;"><div style="width:78%;height:100%;background:#2ed573;border-radius:3px;"></div></div>
+      </div>
+      <div style="margin-bottom:10px;">
+        <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px;"><span>🟡 中置信（60-80%）</span><span style="color:#e6960a;">实际准确率 63%</span></div>
+        <div style="height:6px;background:#f0f0f0;border-radius:3px;"><div style="width:63%;height:100%;background:#ffa502;border-radius:3px;"></div></div>
+      </div>
+      <div>
+        <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px;"><span>🔴 低置信（<60%）</span><span style="color:#ff4757;">实际准确率 45%</span></div>
+        <div style="height:6px;background:#f0f0f0;border-radius:3px;"><div style="width:45%;height:100%;background:#ff4757;border-radius:3px;"></div></div>
+      </div>
+    </div>
+    <div style="background:rgba(74,105,189,0.08);border-radius:12px;padding:16px;font-size:12px;color:#666;line-height:1.6;">
+      💡 <b>AI自我评估：</b>高置信度参考方案的实际准确率明显高于低置信度，说明置信度标注具有参考价值。近期在震荡市中准确率有所下降，已自动下调置信度评估。
+    </div>
+  </div>
+</div>
+
+<!-- ==================== 6f. ANALYSIS SETTINGS PAGE (分析设置) ==================== -->
+<div id="analysisSettingPage" class="page" style="padding-bottom:80px;">
+  <div style="background:#1a1a2e;color:#fff;padding:12px 16px;display:flex;align-items:center;position:sticky;top:0;z-index:10;">
+    <span onclick="hideSubPage()" style="font-size:20px;cursor:pointer;margin-right:12px;">←</span>
+    <span style="font-size:17px;font-weight:600;">⚙️ 分析设置</span>
+  </div>
+  <div style="padding:16px;">
+    <div style="background:#fff;border-radius:12px;padding:4px 16px;margin-bottom:12px;box-shadow:0 2px 8px rgba(0,0,0,0.06);">
+      <div style="font-size:13px;font-weight:700;color:#999;padding:12px 0 4px;">投资风格</div>
+      <div style="display:flex;gap:8px;padding:8px 0 14px;border-bottom:1px solid #f0f0f0;">
+        <span style="padding:6px 14px;border-radius:16px;font-size:12px;background:#4a69bd;color:#fff;">稳健型</span>
+        <span style="padding:6px 14px;border-radius:16px;font-size:12px;border:1px solid #ddd;background:#fff;color:#666;">均衡型</span>
+        <span style="padding:6px 14px;border-radius:16px;font-size:12px;border:1px solid #ddd;background:#fff;color:#666;">激进型</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:14px 0;border-bottom:1px solid #f0f0f0;">
+        <div><div style="font-size:14px;">大盘环境联动</div><div style="font-size:11px;color:#999;margin-top:2px;">震荡/下跌市自动下调置信度</div></div>
+        <div style="width:44px;height:24px;border-radius:12px;background:#4a69bd;position:relative;cursor:pointer;" onclick="toggleSwitch(this)"><div style="width:20px;height:20px;border-radius:50%;background:#fff;position:absolute;top:2px;right:2px;box-shadow:0 1px 3px rgba(0,0,0,0.2);"></div></div>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:14px 0;border-bottom:1px solid #f0f0f0;">
+        <div><div style="font-size:14px;">自我修正</div><div style="font-size:11px;color:#999;margin-top:2px;">分析偏差超5%时自动修正并通知</div></div>
+        <div style="width:44px;height:24px;border-radius:12px;background:#4a69bd;position:relative;cursor:pointer;" onclick="toggleSwitch(this)"><div style="width:20px;height:20px;border-radius:50%;background:#fff;position:absolute;top:2px;right:2px;box-shadow:0 1px 3px rgba(0,0,0,0.2);"></div></div>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:14px 0;border-bottom:1px solid #f0f0f0;">
+        <div><div style="font-size:14px;">情绪检测</div><div style="font-size:11px;color:#999;margin-top:2px;">检测到冲动操作时弹出冷静提醒</div></div>
+        <div style="width:44px;height:24px;border-radius:12px;background:#4a69bd;position:relative;cursor:pointer;" onclick="toggleSwitch(this)"><div style="width:20px;height:20px;border-radius:50%;background:#fff;position:absolute;top:2px;right:2px;box-shadow:0 1px 3px rgba(0,0,0,0.2);"></div></div>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:14px 0;border-bottom:1px solid #f0f0f0;">
+        <div><div style="font-size:14px;">集中度风险提示</div><div style="font-size:11px;color:#999;margin-top:2px;">单板块占比超30%时提醒分散</div></div>
+        <div style="width:44px;height:24px;border-radius:12px;background:#4a69bd;position:relative;cursor:pointer;" onclick="toggleSwitch(this)"><div style="width:20px;height:20px;border-radius:50%;background:#fff;position:absolute;top:2px;right:2px;box-shadow:0 1px 3px rgba(0,0,0,0.2);"></div></div>
+      </div>
+      <div style="padding:14px 0;border-bottom:1px solid #f0f0f0;">
+        <div style="display:flex;justify-content:space-between;align-items:center;">
+          <div><div style="font-size:14px;">估值数据范围</div><div style="font-size:11px;color:#999;margin-top:2px;">PE/PB分位计算的历史区间</div></div>
+          <span style="font-size:13px;color:#4a69bd;font-weight:600;">10年 ›</span>
+        </div>
+      </div>
+      <div style="padding:14px 0;">
+        <div style="display:flex;justify-content:space-between;align-items:center;">
+          <div><div style="font-size:14px;">AI模型</div><div style="font-size:11px;color:#999;margin-top:2px;">分析使用的AI引擎</div></div>
+          <span style="font-size:13px;color:#4a69bd;font-weight:600;">DeepSeek V3 ›</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ==================== 6g. ABOUT PAGE (关于) ==================== -->
+<div id="aboutAppPage" class="page" style="padding-bottom:80px;">
+  <div style="background:#1a1a2e;color:#fff;padding:12px 16px;display:flex;align-items:center;position:sticky;top:0;z-index:10;">
+    <span onclick="hideSubPage()" style="font-size:20px;cursor:pointer;margin-right:12px;">←</span>
+    <span style="font-size:17px;font-weight:600;">📱 关于</span>
+  </div>
+  <div style="padding:16px;">
+    <div style="text-align:center;padding:32px 0;">
+      <div style="font-size:48px;margin-bottom:8px;">📈</div>
+      <div style="font-size:20px;font-weight:700;color:#1a1a2e;margin-bottom:4px;">AI投资陪伴助手</div>
+      <div style="font-size:13px;color:#999;">版本 2.0.0</div>
+    </div>
+    <div style="background:#fff;border-radius:12px;padding:4px 16px;margin-bottom:12px;box-shadow:0 2px 8px rgba(0,0,0,0.06);">
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:14px 0;border-bottom:1px solid #f0f0f0;">
+        <span style="font-size:14px;">AI引擎</span>
+        <span style="font-size:13px;color:#999;">DeepSeek V3</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:14px 0;border-bottom:1px solid #f0f0f0;">
+        <span style="font-size:14px;">数据源</span>
+        <span style="font-size:13px;color:#999;">腾讯财经 / 新浪财经</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:14px 0;border-bottom:1px solid #f0f0f0;">
+        <span style="font-size:14px;">更新时间</span>
+        <span style="font-size:13px;color:#999;">2026-03-21</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:center;padding:14px 0;">
+        <span style="font-size:14px;">开发者</span>
+        <span style="font-size:13px;color:#999;">个人项目</span>
+      </div>
+    </div>
+    <div style="background:rgba(255,165,2,0.08);border:1px solid rgba(255,165,2,0.2);border-radius:12px;padding:16px;font-size:12px;color:#888;line-height:1.6;">
+      ⚠️ <b>免责声明：</b>本应用所有分析内容仅供学习参考，不构成任何投资依据。投资有风险，入市需谨慎。AI分析基于历史数据和算法模型，无法保证准确性。请结合自身情况独立判断。
+    </div>
+  </div>
+</div>
+
+
+<!-- ==================== 7. MODALS ==================== -->
+
+<!-- Add Position Modal -->
+<div id="addModal" class="modal-overlay">
+  <div style="background:#fff;width:100%;max-width:428px;border-radius:16px 16px 0 0;padding:24px 16px 32px;">
+    <h3 style="font-size:18px;margin-bottom:16px;text-align:center;">添加持仓</h3>
+    <input style="width:100%;padding:12px;border:1px solid #e0e0e0;border-radius:8px;font-size:14px;margin-bottom:4px;outline:none;" placeholder="输入股票名称或代码（如 茅台 / 600519）">
+    <div style="font-size:11px;color:#999;margin-bottom:12px;padding-left:4px;">输入名称或代码均可，系统自动匹配</div>
+    <input style="width:100%;padding:12px;border:1px solid #e0e0e0;border-radius:8px;font-size:14px;margin-bottom:12px;outline:none;" placeholder="成本价（元）">
+    <input style="width:100%;padding:12px;border:1px solid #e0e0e0;border-radius:8px;font-size:14px;margin-bottom:12px;outline:none;" placeholder="持有份额（股）">
+    <input style="width:100%;padding:12px;border:1px solid #e0e0e0;border-radius:8px;font-size:14px;margin-bottom:12px;outline:none;" type="date" placeholder="买入时间">
+    <input style="width:100%;padding:12px;border:1px solid #e0e0e0;border-radius:8px;font-size:14px;margin-bottom:4px;outline:none;" placeholder="止损价（元，选填）">
+    <div style="font-size:11px;color:#999;margin-bottom:12px;padding-left:4px;">设置止损价后，当股价接近或跌破时会收到提醒</div>
+    <button onclick="hideModal()" style="width:100%;padding:14px;border:none;border-radius:10px;background:#4a69bd;color:#fff;font-size:15px;font-weight:600;cursor:pointer;margin-top:8px;">确认添加</button>
+    <button onclick="hideModal()" style="width:100%;padding:14px;border:none;border-radius:10px;background:#f0f0f0;color:#666;font-size:15px;cursor:pointer;margin-top:8px;">取消</button>
+  </div>
+</div>
+
+<!-- Deep Report Modal -->
+<div id="deepReportModal" class="report-modal">
+  <div style="background:#1a1a2e;color:#fff;padding:12px 16px;display:flex;justify-content:space-between;align-items:center;position:sticky;top:0;z-index:10;">
+    <span style="font-size:17px;font-weight:600;">📋 深度分析报告</span>
+    <button onclick="hideDeepReport()" style="background:none;border:none;color:#fff;font-size:20px;cursor:pointer;">✕</button>
+  </div>
+  <div style="padding:16px;">
+    <div style="background:linear-gradient(135deg,#f8f9ff,#eef1ff);border-radius:12px;padding:16px;margin-bottom:16px;border-left:4px solid #4a69bd;">
+      <div style="font-size:14px;font-weight:700;color:#4a69bd;margin-bottom:8px;">📌 结论先行</div>
+      <div style="font-size:13px;line-height:1.8;color:#555;">
+        贵州茅台当前处于<b>主升浪中段</b>，基本面稳健，估值合理偏高。<br>
+        <b>参考方案：继续持有</b>，利润仓可在1,920附近分批止盈，底仓看2,000目标。<br>
+        <b>置信度：78%</b>（中等，部分数据支撑）
+      </div>
+    </div>
+    <div style="background:#fff;border-radius:12px;padding:16px;margin-bottom:16px;box-shadow:0 2px 8px rgba(0,0,0,0.06);">
+      <div style="font-size:14px;font-weight:700;margin-bottom:10px;">📊 基本面分析</div>
+      <div style="font-size:13px;line-height:1.8;color:#555;">
+        • 2025年Q3营收同比+15.2%，净利润同比+12.8%<br>
+        • 毛利率91.5%，维持行业绝对领先<br>
+        • 经销商库存处于合理水平，批价稳定<br>
+        • 直营占比持续提升，渠道结构优化
+      </div>
+    </div>
+    <div style="background:#fff;border-radius:12px;padding:16px;margin-bottom:16px;box-shadow:0 2px 8px rgba(0,0,0,0.06);">
+      <div style="font-size:14px;font-weight:700;margin-bottom:10px;">💰 核心财务数据</div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;">
+        <div style="text-align:center;padding:10px;background:#f8f9ff;border-radius:8px;"><div style="font-size:10px;color:#999;">营收(亿)</div><div style="font-size:16px;font-weight:700;">1,505</div></div>
+        <div style="text-align:center;padding:10px;background:#f8f9ff;border-radius:8px;"><div style="font-size:10px;color:#999;">净利(亿)</div><div style="font-size:16px;font-weight:700;">738</div></div>
+        <div style="text-align:center;padding:10px;background:#f8f9ff;border-radius:8px;"><div style="font-size:10px;color:#999;">ROE</div><div style="font-size:16px;font-weight:700;">31.2%</div></div>
+        <div style="text-align:center;padding:10px;background:#f8f9ff;border-radius:8px;"><div style="font-size:10px;color:#999;">毛利率</div><div style="font-size:16px;font-weight:700;">91.5%</div></div>
+        <div style="text-align:center;padding:10px;background:#f8f9ff;border-radius:8px;"><div style="font-size:10px;color:#999;">PE(TTM)</div><div style="font-size:16px;font-weight:700;">28.6</div></div>
+        <div style="text-align:center;padding:10px;background:#f8f9ff;border-radius:8px;"><div style="font-size:10px;color:#999;">股息率</div><div style="font-size:16px;font-weight:700;">2.1%</div></div>
+      </div>
+    </div>
+    <div style="background:#fff;border-radius:12px;padding:16px;margin-bottom:16px;box-shadow:0 2px 8px rgba(0,0,0,0.06);">
+      <div style="font-size:14px;font-weight:700;margin-bottom:10px;">📐 估值分位（10年）</div>
+      <div style="margin-bottom:10px;">
+        <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px;"><span>PE分位</span><span style="color:#e6960a;">55% 合理</span></div>
+        <div style="height:6px;background:#f0f0f0;border-radius:3px;"><div style="width:55%;height:100%;background:#ffa502;border-radius:3px;"></div></div>
+      </div>
+      <div style="margin-bottom:10px;">
+        <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px;"><span>PB分位</span><span style="color:#e6960a;">62% 合理</span></div>
+        <div style="height:6px;background:#f0f0f0;border-radius:3px;"><div style="width:62%;height:100%;background:#ffa502;border-radius:3px;"></div></div>
+      </div>
+      <div>
+        <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:4px;"><span>PS分位</span><span style="color:#e6960a;">48% 合理</span></div>
+        <div style="height:6px;background:#f0f0f0;border-radius:3px;"><div style="width:48%;height:100%;background:#ffa502;border-radius:3px;"></div></div>
+      </div>
+    </div>
+    <div style="background:#fff;border-radius:12px;padding:16px;margin-bottom:16px;box-shadow:0 2px 8px rgba(0,0,0,0.06);">
+      <div style="font-size:14px;font-weight:700;margin-bottom:10px;">🎯 交易策略</div>
+      <div style="font-size:13px;line-height:1.8;color:#555;">
+        <b>利润仓（30%·15股）：</b><br>
+        • 目标价1,920，到达后分批止盈<br>
+        • 止损线1,600（距当前-13.8%）<br><br>
+        <b>底仓（70%·35股）：</b><br>
+        • 长期目标2,000-2,200<br>
+        • 除非基本面恶化，否则不动<br><br>
+        <b>加仓条件：</b>回调至1,780以下可考虑加仓
+      </div>
+    </div>
+    <div style="font-size:10px;color:#bbb;text-align:center;padding:16px 0;">以上内容仅供学习参考，不构成投资依据</div>
+  </div>
+</div>
+
+<!-- Backtest Modal -->
+<div id="backtestModal" class="report-modal">
+  <div style="background:#1a1a2e;color:#fff;padding:12px 16px;display:flex;justify-content:space-between;align-items:center;position:sticky;top:0;z-index:10;">
+    <span style="font-size:17px;font-weight:600;">📈 历史回测</span>
+    <button onclick="hideBacktest()" style="background:none;border:none;color:#fff;font-size:20px;cursor:pointer;">✕</button>
+  </div>
+  <div style="padding:16px;">
+    <div style="display:flex;gap:12px;margin-bottom:16px;">
+      <div style="flex:1;background:linear-gradient(135deg,#f8f9ff,#eef1ff);border-radius:12px;padding:16px;text-align:center;">
+        <div style="font-size:11px;color:#999;margin-bottom:4px;">盈利概率</div>
+        <div style="font-size:28px;font-weight:700;color:#4a69bd;">78%</div>
+      </div>
+      <div style="flex:1;background:linear-gradient(135deg,#fff8f8,#ffefef);border-radius:12px;padding:16px;text-align:center;">
+        <div style="font-size:11px;color:#999;margin-bottom:4px;">平均收益率</div>
+        <div style="font-size:28px;font-weight:700;color:#ff4757;">+12.3%</div>
+      </div>
+    </div>
+    <div style="background:#fff;border-radius:12px;padding:16px;margin-bottom:16px;box-shadow:0 2px 8px rgba(0,0,0,0.06);">
+      <div style="font-size:14px;font-weight:700;margin-bottom:12px;">📊 不同持有期回测</div>
+      <table style="width:100%;border-collapse:collapse;font-size:12px;">
+        <thead><tr style="border-bottom:2px solid #f0f0f0;">
+          <th style="padding:8px 4px;text-align:left;color:#999;font-weight:500;">持有期</th>
+          <th style="padding:8px 4px;text-align:center;color:#999;font-weight:500;">盈利率</th>
+          <th style="padding:8px 4px;text-align:center;color:#999;font-weight:500;">平均收益</th>
+          <th style="padding:8px 4px;text-align:center;color:#999;font-weight:500;">最大亏损</th>
+        </tr></thead>
+        <tbody>
+          <tr style="border-bottom:1px solid #f8f8f8;"><td style="padding:10px 4px;font-weight:600;">30天</td><td style="padding:10px 4px;text-align:center;color:#ff4757;">72%</td><td style="padding:10px 4px;text-align:center;color:#ff4757;">+6.8%</td><td style="padding:10px 4px;text-align:center;color:#2ed573;">-8.2%</td></tr>
+          <tr style="border-bottom:1px solid #f8f8f8;"><td style="padding:10px 4px;font-weight:600;">90天</td><td style="padding:10px 4px;text-align:center;color:#ff4757;">78%</td><td style="padding:10px 4px;text-align:center;color:#ff4757;">+12.3%</td><td style="padding:10px 4px;text-align:center;color:#2ed573;">-11.5%</td></tr>
+          <tr style="border-bottom:1px solid #f8f8f8;"><td style="padding:10px 4px;font-weight:600;">180天</td><td style="padding:10px 4px;text-align:center;color:#ff4757;">82%</td><td style="padding:10px 4px;text-align:center;color:#ff4757;">+18.6%</td><td style="padding:10px 4px;text-align:center;color:#2ed573;">-15.3%</td></tr>
+          <tr><td style="padding:10px 4px;font-weight:600;">365天</td><td style="padding:10px 4px;text-align:center;color:#ff4757;">85%</td><td style="padding:10px 4px;text-align:center;color:#ff4757;">+24.1%</td><td style="padding:10px 4px;text-align:center;color:#2ed573;">-18.7%</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div style="background:rgba(255,165,2,0.08);border:1px solid rgba(255,165,2,0.2);border-radius:12px;padding:16px;margin-bottom:16px;">
+      <div style="font-size:13px;font-weight:600;color:#e67e22;margin-bottom:6px;">⚠️ 风险提示</div>
+      <div style="font-size:12px;color:#888;line-height:1.6;">历史回测数据基于过去表现，不代表未来收益。市场环境、政策变化等因素可能导致实际结果与回测数据存在较大差异。请结合自身风险承受能力谨慎决策。</div>
+    </div>
+    <div style="font-size:10px;color:#bbb;text-align:center;padding:8px 0;">以上内容仅供学习参考，不构成投资依据</div>
+  </div>
+</div>
+
+<!-- Quick Buy Modal -->
+<div id="quickBuyModal" class="modal-overlay">
+  <div style="background:#fff;width:100%;max-width:428px;border-radius:16px 16px 0 0;padding:24px 16px 32px;">
+    <h3 style="font-size:18px;margin-bottom:16px;text-align:center;">🛒 快速买入</h3>
+    <div id="qbInfo" style="background:#f8f9ff;border-radius:8px;padding:12px;margin-bottom:16px;display:flex;justify-content:space-between;align-items:center;">
+      <div><span id="qbName" style="font-size:16px;font-weight:600;"></span><span id="qbCode" style="font-size:12px;color:#999;margin-left:6px;"></span></div>
+      <div style="text-align:right;"><span id="qbDate" style="font-size:11px;color:#999;"></span></div>
+    </div>
+    <div style="margin-bottom:12px;">
+      <label style="font-size:12px;color:#666;display:block;margin-bottom:4px;">买入价格（元）</label>
+      <input id="qbPrice" style="width:100%;padding:12px;border:1px solid #e0e0e0;border-radius:8px;font-size:15px;outline:none;" placeholder="输入买入价格">
+    </div>
+    <div style="margin-bottom:12px;">
+      <label style="font-size:12px;color:#666;display:block;margin-bottom:4px;">买入数量（股）</label>
+      <input id="qbShares" style="width:100%;padding:12px;border:1px solid #e0e0e0;border-radius:8px;font-size:15px;outline:none;" type="number" placeholder="输入持仓数量（如 100）">
+    </div>
+    <div id="qbTotal" style="font-size:13px;color:#666;text-align:right;margin-bottom:16px;padding:0 4px;"></div>
+    <button onclick="confirmBuy()" style="width:100%;padding:14px;border:none;border-radius:10px;background:#ff4757;color:#fff;font-size:15px;font-weight:600;cursor:pointer;">确认买入建仓</button>
+    <button onclick="hideQuickBuy()" style="width:100%;padding:14px;border:none;border-radius:10px;background:#f0f0f0;color:#666;font-size:15px;cursor:pointer;margin-top:8px;">取消</button>
+  </div>
+</div>
+
+<!-- Add Cycle Monitor Modal -->
+<div id="addCycleModal" class="modal-overlay">
+  <div style="background:#fff;width:100%;max-width:428px;border-radius:16px 16px 0 0;padding:24px 16px 32px;">
+    <h3 style="font-size:18px;margin-bottom:16px;text-align:center;">添加周期监控</h3>
+    <input id="cycleSearch" style="width:100%;padding:12px;border:1px solid #e0e0e0;border-radius:8px;font-size:14px;margin-bottom:4px;outline:none;" placeholder="输入品种名称或代码（如 猪肉ETF / 159706）">
+    <div style="font-size:11px;color:#999;margin-bottom:12px;padding-left:4px;">输入名称或代码均可，系统自动匹配并分析周期</div>
+    <button onclick="confirmAddCycle()" style="width:100%;padding:14px;border:none;border-radius:10px;background:#4a69bd;color:#fff;font-size:15px;font-weight:600;cursor:pointer;">确认添加</button>
+    <button onclick="document.getElementById('addCycleModal').style.display='none'" style="width:100%;padding:14px;border:none;border-radius:10px;background:#f0f0f0;color:#666;font-size:15px;cursor:pointer;margin-top:8px;">取消</button>
+  </div>
+</div>
+
+<!-- ==================== 8. BOTTOM NAV (5 tabs) ==================== -->
+<div id="bottomNav" class="bottom-nav">
+  <div class="nav-item active" onclick="showPage('dashboard')">
+    <span class="icon">📊</span>
+    <span class="label">看板</span>
+  </div>
+  <div class="nav-item" onclick="showPage('position')">
+    <span class="icon">📦</span>
+    <span class="label">持仓</span>
+  </div>
+  <div class="nav-item" onclick="showPage('chat')">
+    <span class="icon">💬</span>
+    <span class="label">对话</span>
+  </div>
+  <div class="nav-item" onclick="showPage('message')" style="position:relative;">
+    <span class="icon">🔔</span>
+    <span class="label">消息</span>
+    <span class="badge">6</span>
+  </div>
+  <div class="nav-item" onclick="showPage('profile')">
+    <span class="icon">👤</span>
+    <span class="label">我的</span>
+  </div>
+</div>
+
+<!-- ==================== 9. JAVASCRIPT ==================== -->
+<script>
+function showPage(p) {
+  document.querySelectorAll('.page').forEach(function(e) { e.classList.remove('active'); });
+  document.querySelectorAll('.nav-item').forEach(function(e) { e.classList.remove('active'); });
+  var nav = document.getElementById('bottomNav');
+  if (p === 'login') {
+    document.getElementById('loginPage').classList.add('active');
+    nav.style.display = 'none';
+    return;
+  }
+  nav.style.display = 'flex';
+  var m = { dashboard: 'dashboardPage', position: 'positionPage', chat: 'chatPage', message: 'messagePage', profile: 'profilePage' };
+  var n = { dashboard: 0, position: 1, chat: 2, message: 3, profile: 4 };
+  document.getElementById(m[p]).classList.add('active');
+  document.querySelectorAll('.nav-item')[n[p]].classList.add('active');
+}
+function showModal() { document.getElementById('addModal').style.display = 'flex'; }
+function hideModal() { document.getElementById('addModal').style.display = 'none'; }
+function showDeepReport() { document.getElementById('deepReportModal').style.display = 'block'; }
+function hideDeepReport() { document.getElementById('deepReportModal').style.display = 'none'; }
+function showBacktest() { document.getElementById('backtestModal').style.display = 'block'; }
+function hideBacktest() { document.getElementById('backtestModal').style.display = 'none'; }
+function quickWatch(name, code) {
+  var btn = event.target;
+  btn.innerHTML = '✅ 已关注';
+  btn.style.background = '#e8f5e9';
+  btn.style.color = '#2ed573';
+  btn.style.borderColor = '#2ed573';
+  btn.disabled = true;
+}
+function quickBuy(name, code, price, date) {
+  document.getElementById('qbName').textContent = name;
+  document.getElementById('qbCode').textContent = code;
+  document.getElementById('qbDate').textContent = date;
+  document.getElementById('qbPrice').value = price;
+  document.getElementById('qbShares').value = '';
+  document.getElementById('qbTotal').textContent = '';
+  document.getElementById('quickBuyModal').style.display = 'flex';
+  document.getElementById('qbShares').oninput = function() {
+    var p = parseFloat(document.getElementById('qbPrice').value) || 0;
+    var s = parseInt(this.value) || 0;
+    document.getElementById('qbTotal').textContent = s > 0 ? '预估金额：¥ ' + (p * s).toLocaleString('zh-CN', {minimumFractionDigits:2}) : '';
+  };
+}
+function hideQuickBuy() { document.getElementById('quickBuyModal').style.display = 'none'; }
+function confirmBuy() {
+  var name = document.getElementById('qbName').textContent;
+  var shares = document.getElementById('qbShares').value;
+  if (!shares || parseInt(shares) <= 0) { alert('请输入持仓数量'); return; }
+  alert(name + ' 买入 ' + shares + '股 已记录');
+  hideQuickBuy();
+}
+function switchTab(t) {
+  var tp = document.getElementById('tabPosition');
+  var tw = document.getElementById('tabWatch');
+  var pl = document.getElementById('positionList');
+  var wl = document.getElementById('watchList');
+  if (t === 'position') {
+    tp.style.background = '#4a69bd'; tp.style.color = '#fff';
+    tw.style.background = '#fff'; tw.style.color = '#666';
+    pl.style.display = 'block'; wl.style.display = 'none';
+  } else {
+    tw.style.background = '#4a69bd'; tw.style.color = '#fff';
+    tp.style.background = '#fff'; tp.style.color = '#666';
+    wl.style.display = 'block'; pl.style.display = 'none';
+  }
+}
+function confirmAddCycle() {
+  var search = document.getElementById('cycleSearch').value;
+  if (!search) { alert('请输入品种名称或代码'); return; }
+  alert(search + ' 已添加到周期监控，系统将自动分析周期位置');
+  document.getElementById('addCycleModal').style.display = 'none';
+  document.getElementById('cycleSearch').value = '';
+}
+var _prevPage = 'profile';
+function showNotifSettings() {
+  _prevPage = document.querySelector('.page.active').id.replace('Page','');
+  document.querySelectorAll('.page').forEach(function(e){e.classList.remove('active');});
+  document.getElementById('notifSettingsPage').classList.add('active');
+  document.getElementById('bottomNav').style.display = 'none';
+}
+function hideNotifSettings() {
+  document.querySelectorAll('.page').forEach(function(e){e.classList.remove('active');});
+  document.getElementById('profilePage').classList.add('active');
+  document.getElementById('bottomNav').style.display = 'flex';
+  document.querySelectorAll('.nav-item').forEach(function(e){e.classList.remove('active');});
+  document.querySelectorAll('.nav-item')[4].classList.add('active');
+}
+function toggleSwitch(el) {
+  var on = el.style.background === 'rgb(74, 105, 189)';
+  var dot = el.querySelector('div');
+  if (on) { el.style.background = '#ccc'; dot.style.right = 'auto'; dot.style.left = '2px'; }
+  else { el.style.background = '#4a69bd'; dot.style.left = 'auto'; dot.style.right = '2px'; }
+}
+var _subPageMap = { reviewLog:'reviewLogPage', historyReport:'historyReportPage', aiAccuracy:'aiAccuracyPage', analysisSetting:'analysisSettingPage', aboutApp:'aboutAppPage' };
+function showSubPage(key) {
+  document.querySelectorAll('.page').forEach(function(e){e.classList.remove('active');});
+  document.getElementById(_subPageMap[key]).classList.add('active');
+  document.getElementById('bottomNav').style.display = 'none';
+}
+function hideSubPage() {
+  document.querySelectorAll('.page').forEach(function(e){e.classList.remove('active');});
+  document.getElementById('profilePage').classList.add('active');
+  document.getElementById('bottomNav').style.display = 'flex';
+  document.querySelectorAll('.nav-item').forEach(function(e){e.classList.remove('active');});
+  document.querySelectorAll('.nav-item')[4].classList.add('active');
+}
+</script>
+
+</body>
+</html>

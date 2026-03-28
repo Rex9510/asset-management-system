@@ -14,6 +14,7 @@ function renderWithRouter(initialPath = '/dashboard') {
     <MemoryRouter initialEntries={[initialPath]}>
       <Routes>
         <Route path="/dashboard" element={<><div data-testid="dashboard">看板</div><BottomNav /></>} />
+        <Route path="/position" element={<><div data-testid="position">持仓</div><BottomNav /></>} />
         <Route path="/chat" element={<><div data-testid="chat">对话</div><BottomNav /></>} />
         <Route path="/messages" element={<><div data-testid="messages">消息</div><BottomNav /></>} />
         <Route path="/profile" element={<><div data-testid="profile">我的</div><BottomNav /></>} />
@@ -28,9 +29,10 @@ beforeEach(() => {
 });
 
 describe('BottomNav', () => {
-  it('renders all four tabs', () => {
+  it('renders all five tabs', () => {
     renderWithRouter();
     expect(screen.getByLabelText('看板')).toBeInTheDocument();
+    expect(screen.getByLabelText('持仓')).toBeInTheDocument();
     expect(screen.getByLabelText('对话')).toBeInTheDocument();
     expect(screen.getByLabelText('消息')).toBeInTheDocument();
     expect(screen.getByLabelText('我的')).toBeInTheDocument();
@@ -41,6 +43,12 @@ describe('BottomNav', () => {
     const dashboardTab = screen.getByLabelText('看板');
     expect(dashboardTab).toHaveAttribute('aria-current', 'page');
     expect(screen.getByLabelText('对话')).not.toHaveAttribute('aria-current');
+  });
+
+  it('navigates to position page on tab click', () => {
+    renderWithRouter('/dashboard');
+    fireEvent.click(screen.getByLabelText('持仓'));
+    expect(screen.getByTestId('position')).toBeInTheDocument();
   });
 
   it('navigates to chat page on tab click', () => {

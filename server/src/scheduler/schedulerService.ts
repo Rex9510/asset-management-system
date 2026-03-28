@@ -2,6 +2,25 @@ import Database from 'better-sqlite3';
 import { getDatabase } from '../db/connection';
 import { triggerAnalysis } from '../analysis/analysisService';
 import { getQuote } from '../market/marketDataService';
+import { dailyHistoryUpdate } from '../market/historyService';
+import { runSelfCorrectionCheck } from '../analysis/selfCorrectionService';
+import { runTargetPriceCheck } from '../alerts/targetPriceService';
+import { generateAmbushRecommendation } from '../alerts/ambushService';
+import { isTradingDay, isTradingHours } from './tradingDayGuard';
+import { hasSignificantChange, updateSnapshot, initSnapshotCache } from './changeDetector';
+import { getDeduplicatedStocks, distributeAnalysisToHolders } from './stockDeduplicator';
+import { getUserSettings } from '../settings/userSettingsService';
+import { getIndicators } from '../indicators/indicatorService';
+import { batchUpdateValuations } from '../valuation/valuationService';
+import { updateRotationStatus } from '../rotation/rotationService';
+import { updateChainStatus } from '../chain/commodityChainService';
+import { updateMarketEnv } from '../marketenv/marketEnvService';
+import { updateSentiment } from '../sentiment/sentimentService';
+import { updateAllMonitors } from '../cycle/cycleDetectorService';
+import { trackDailyPicks } from '../dailypick/dailyPickTrackingService';
+import { checkAllUsersConcentrationRisk } from '../concentration/concentrationService';
+import { takeAllUsersSnapshot } from '../snapshot/snapshotService';
+import { generateReviews } from '../oplog/operationLogService';
 
 // --- Types ---
 
@@ -11,12 +30,6 @@ export interface VolatilityReport {
   changePercent: number;
   reason: string;
   dataSupport: string[];
-}
-
-interface PositionStockRow {
-  user_id: number;
-  stock_code: string;
-  stock_name: string;
 }
 
 // --- SSE client registry for push notifications ---
@@ -52,21 +65,34 @@ function pushToUser(userId: number, event: string, data: unknown): void {
 // --- Scheduler state ---
 
 let fullAnalysisInterval: ReturnType<typeof setInterval> | null = null;
+let dailyHistoryTimer: ReturnType<typeof setTimeout> | null = null;
 const FULL_ANALYSIS_INTERVAL_MS = 30 * 60 * 1000; // 30 minutes
-const VOLATILITY_URGENT_DELAY_MS = 60 * 1000; // 60 seconds max for >3% trigger
 
 // Track pending volatility timers so we can cancel them on stop
 const pendingVolatilityTimers: ReturnType<typeof setTimeout>[] = [];
+
+// Track post-close task timers
+const postCloseTimers: ReturnType<typeof setTimeout>[] = [];
+
+// 10-minute timeout for each post-close task
+const TASK_TIMEOUT_MS = 10 * 60 * 1000;
 
 // --- Start / Stop ---
 
 export function startScheduler(): void {
   if (fullAnalysisInterval) return; // Already running
+
+  // Initialize change detection snapshot cache
+  initSnapshotCache();
+
   fullAnalysisInterval = setInterval(() => {
-    runFullAnalysis().catch(() => {
+    runScheduledJobs().catch(() => {
       // Scheduler errors are non-critical, log silently
     });
   }, FULL_ANALYSIS_INTERVAL_MS);
+
+  // Schedule all post-close tasks (15:30-17:30 staggered)
+  schedulePostCloseTasks();
 }
 
 export function stopScheduler(): void {
@@ -74,10 +100,337 @@ export function stopScheduler(): void {
     clearInterval(fullAnalysisInterval);
     fullAnalysisInterval = null;
   }
+  if (dailyHistoryTimer) {
+    clearTimeout(dailyHistoryTimer);
+    dailyHistoryTimer = null;
+  }
   for (const timer of pendingVolatilityTimers) {
     clearTimeout(timer);
   }
   pendingVolatilityTimers.length = 0;
+  for (const timer of postCloseTimers) {
+    clearTimeout(timer);
+  }
+  postCloseTimers.length = 0;
+}
+
+/**
+ * Helper: wrap a promise with a timeout. Rejects if the task exceeds the limit.
+ */
+function withTimeout<T>(promise: Promise<T>, ms: number, taskName: string): Promise<T> {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) =>
+      setTimeout(() => reject(new Error(`${taskName} 超时(${ms / 1000}s)`)), ms)
+    ),
+  ]);
+}
+
+/**
+ * Post-close task definitions.
+ * Each task has a scheduled time (hour:minute), a name, and an executor function.
+ */
+export interface PostCloseTask {
+  hour: number;
+  minute: number;
+  name: string;
+  execute: (db: Database.Database) => Promise<void>;
+}
+
+/**
+ * Build the list of post-close tasks with staggered schedule (15:30-17:30).
+ * Exported for testing.
+ */
+export function getPostCloseTaskList(): PostCloseTask[] {
+  return [
+    {
+      hour: 15, minute: 30, name: 'K线增量更新',
+      execute: async () => { await dailyHistoryUpdate(); },
+    },
+    {
+      hour: 15, minute: 45, name: '估值分位数据更新',
+      execute: async (db) => { await batchUpdateValuations(db, 500); },
+    },
+    {
+      hour: 16, minute: 0, name: '板块轮动阶段判断',
+      execute: async (db) => { await updateRotationStatus(db); },
+    },
+    {
+      hour: 16, minute: 10, name: '商品传导链状态更新',
+      execute: async (db) => { await updateChainStatus(db); },
+    },
+    {
+      hour: 16, minute: 20, name: '大盘环境判断',
+      execute: async (db) => { await updateMarketEnv(db); },
+    },
+    {
+      hour: 16, minute: 30, name: '市场情绪指数计算',
+      execute: async (db) => { updateSentiment(db); },
+    },
+    {
+      hour: 16, minute: 40, name: '周期底部检测',
+      execute: async (db) => { updateAllMonitors(db); },
+    },
+    {
+      hour: 16, minute: 50, name: '每日关注追踪',
+      execute: async (db) => { await trackDailyPicks(db); },
+    },
+    {
+      hour: 17, minute: 0, name: '持仓集中度检查',
+      execute: async (db) => { checkAllUsersConcentrationRisk(db); },
+    },
+    {
+      hour: 17, minute: 10, name: '持仓快照记录',
+      execute: async (db) => {
+        const today = new Date().toISOString().slice(0, 10);
+        takeAllUsersSnapshot(today, db);
+      },
+    },
+    {
+      hour: 17, minute: 20, name: '操作复盘评价生成',
+      execute: async (db) => { generateReviews(db); },
+    },
+  ];
+}
+
+/**
+ * Execute a single post-close task with trading day guard, try-catch, and 10-min timeout.
+ * Exported for testing.
+ */
+export async function executePostCloseTask(
+  task: PostCloseTask,
+  db?: Database.Database
+): Promise<void> {
+  const database = db || getDatabase();
+  const now = new Date();
+
+  // Trading day guard
+  if (!isTradingDay(now)) {
+    console.log(`非交易日，跳过: ${task.name}`);
+    return;
+  }
+
+  try {
+    await withTimeout(task.execute(database), TASK_TIMEOUT_MS, task.name);
+    console.log(`✅ ${task.name} 完成`);
+  } catch (err) {
+    console.error(`❌ ${task.name} 失败:`, err);
+    // Single task failure doesn't stop the batch — independent try-catch
+  }
+}
+
+/**
+ * 非交易日启动时，也跑一次纯规则的数据计算任务（用最近交易日的K线数据）。
+ * 这样前端在周末/节假日也能展示最近交易日的大盘环境、轮动、情绪等数据，
+ * 而不是显示空白。跳过K线更新（非交易日无新数据）。
+ */
+export async function runStartupDataRefresh(db?: Database.Database): Promise<void> {
+  const database = db || getDatabase();
+
+  // 纯规则任务列表（跳过K线更新、每日关注追踪、操作复盘等依赖当日交易的任务）
+  const ruleBasedTasks: { name: string; execute: (d: Database.Database) => void | Promise<void> }[] = [
+    { name: '估值分位数据更新', execute: async (d) => { await batchUpdateValuations(d, 500); } },
+    { name: '板块轮动阶段判断', execute: async (d) => { await updateRotationStatus(d); } },
+    { name: '商品传导链状态更新', execute: async (d) => { await updateChainStatus(d); } },
+    { name: '大盘环境判断', execute: async (d) => { await updateMarketEnv(d); } },
+    { name: '市场情绪指数计算', execute: (d) => { updateSentiment(d); } },
+    { name: '周期底部检测', execute: (d) => { updateAllMonitors(d); } },
+    { name: '持仓集中度检查', execute: (d) => { checkAllUsersConcentrationRisk(d); } },
+  ];
+
+  console.log('非交易日启动，使用最近交易日数据刷新展示...');
+  for (const task of ruleBasedTasks) {
+    try {
+      await task.execute(database);
+      console.log(`  ✅ ${task.name}`);
+    } catch (err) {
+      console.error(`  ❌ ${task.name}:`, err);
+    }
+  }
+  console.log('非交易日数据刷新完成');
+}
+
+/**
+ * Schedule all post-close tasks at their staggered times (15:30-17:30).
+ * Each task is scheduled via setTimeout from the current time.
+ * After all tasks fire, re-schedules for the next day.
+ */
+function schedulePostCloseTasks(): void {
+  const tasks = getPostCloseTaskList();
+  const now = new Date();
+
+  // Find the latest task time to know when to re-schedule
+  let latestMs = 0;
+
+  for (const task of tasks) {
+    const target = new Date(now);
+    target.setHours(task.hour, task.minute, 0, 0);
+
+    // If this time already passed today, schedule for tomorrow
+    if (now >= target) {
+      target.setDate(target.getDate() + 1);
+    }
+
+    const msUntilTarget = target.getTime() - now.getTime();
+    if (msUntilTarget > latestMs) latestMs = msUntilTarget;
+
+    const timer = setTimeout(() => {
+      executePostCloseTask(task).catch((err) => {
+        console.error(`[schedulePostCloseTasks] ${task.name} 异常:`, err);
+      });
+    }, msUntilTarget);
+
+    postCloseTimers.push(timer);
+  }
+
+  // Re-schedule after the latest task + a buffer (30 min after last task)
+  const rescheduleMs = latestMs + 30 * 60 * 1000;
+  const rescheduleTimer = setTimeout(() => {
+    // Clear old timers
+    postCloseTimers.length = 0;
+    // Re-schedule for next day
+    schedulePostCloseTasks();
+  }, rescheduleMs);
+  postCloseTimers.push(rescheduleTimer);
+
+  const firstTask = tasks[0];
+  const firstTarget = new Date(now);
+  firstTarget.setHours(firstTask.hour, firstTask.minute, 0, 0);
+  if (now >= firstTarget) firstTarget.setDate(firstTarget.getDate() + 1);
+  console.log(`收盘后定时任务已调度(${tasks.length}个)，首个任务将在 ${firstTarget.toLocaleString()} 执行`);
+}
+
+// --- Run all scheduled jobs ---
+
+export async function runScheduledJobs(db?: Database.Database): Promise<void> {
+  const database = db || getDatabase();
+  const now = new Date();
+
+  // Trading day + trading hours guard for intraday analysis
+  if (!isTradingDay(now)) {
+    console.log('非交易日，跳过盘中定时分析');
+    return;
+  }
+  if (!isTradingHours(now)) {
+    console.log('非交易时间，跳过盘中定时分析');
+    return;
+  }
+
+  // 1. Full analysis with dedup + change detection (定时分析)
+  try {
+    const count = await runFullAnalysis(database);
+    console.log(`定时分析完成: ${count} 条`);
+  } catch (err) {
+    console.error('定时分析失败:', err);
+  }
+
+  // 2. Volatility check (波动提醒) - check all user positions
+  try {
+    const positions = database
+      .prepare('SELECT DISTINCT stock_code FROM positions')
+      .all() as { stock_code: string }[];
+    for (const pos of positions) {
+      try {
+        const quote = await getQuote(pos.stock_code, database);
+        await checkVolatility(pos.stock_code, quote.changePercent, database);
+      } catch {
+        // Individual stock check failure is non-critical
+      }
+    }
+  } catch (err) {
+    console.error('波动检查失败:', err);
+  }
+
+  // 3. Self-correction check (自我修正 — 仅记录偏差事实，不调用AI)
+  try {
+    const corrections = await runSelfCorrectionCheck(database);
+    if (corrections > 0) console.log(`自我修正: ${corrections} 条`);
+  } catch (err) {
+    console.error('自我修正检查失败:', err);
+  }
+
+  // 4. Target price check (目标价提醒)
+  try {
+    const alerts = await runTargetPriceCheck(database);
+    if (alerts.length > 0) console.log(`目标价提醒: ${alerts.length} 条`);
+  } catch (err) {
+    console.error('目标价检查失败:', err);
+  }
+
+  // 5. Ambush recommendation (埋伏推荐) - for each active user
+  try {
+    const cutoff = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    const users = database
+      .prepare(`
+        SELECT DISTINCT p.user_id FROM positions p
+        INNER JOIN users u ON p.user_id = u.id
+        WHERE u.last_login_at >= ? OR u.last_login_at IS NULL
+      `)
+      .all(cutoff) as { user_id: number }[];
+    for (const u of users) {
+      try {
+        await generateAmbushRecommendation(u.user_id, database);
+      } catch {
+        // Individual user ambush failure is non-critical
+      }
+    }
+  } catch (err) {
+    console.error('埋伏推荐失败:', err);
+  }
+}
+
+// --- User analysis frequency helpers ---
+
+/**
+ * Get the list of holder user IDs that are due for analysis based on their
+ * configured analysis_frequency setting. A user is due when the time since
+ * their last scheduled_analysis message for this stock exceeds their frequency.
+ *
+ * Default frequency is 60 minutes. Valid values: 30, 60, 120 (minutes).
+ */
+export function getHoldersDueForAnalysis(
+  stockCode: string,
+  holderUserIds: number[],
+  db: Database.Database
+): number[] {
+  const now = Date.now();
+  const due: number[] = [];
+
+  for (const userId of holderUserIds) {
+    let frequencyMs = 60 * 60 * 1000; // default 60 min
+    try {
+      const settings = getUserSettings(userId, db);
+      const freq = settings.analysisFrequency;
+      if (freq === 30 || freq === 60 || freq === 120) {
+        frequencyMs = freq * 60 * 1000;
+      }
+    } catch {
+      // Use default frequency on error
+    }
+
+    // Check last scheduled_analysis message time for this user+stock
+    try {
+      const lastMsg = db.prepare(
+        `SELECT created_at FROM messages
+         WHERE user_id = ? AND stock_code = ? AND type = 'scheduled_analysis'
+         ORDER BY created_at DESC LIMIT 1`
+      ).get(userId, stockCode) as { created_at: string } | undefined;
+
+      if (lastMsg) {
+        const lastTime = new Date(lastMsg.created_at).getTime();
+        if (now - lastTime < frequencyMs) {
+          // Within user's configured frequency window — skip
+          continue;
+        }
+      }
+    } catch {
+      // If query fails, include user (safe default)
+    }
+
+    due.push(userId);
+  }
+
+  return due;
 }
 
 // --- Full analysis (every 30 minutes) ---
@@ -85,46 +438,78 @@ export function stopScheduler(): void {
 export async function runFullAnalysis(db?: Database.Database): Promise<number> {
   const database = db || getDatabase();
 
-  // Get all distinct user+stock combinations from positions
-  const positions = database
-    .prepare('SELECT DISTINCT user_id, stock_code, stock_name FROM positions')
-    .all() as PositionStockRow[];
+  // Get deduplicated stock list (active users only, same stock analyzed once)
+  const deduplicatedStocks = getDeduplicatedStocks(database);
 
   let analysisCount = 0;
 
-  for (const pos of positions) {
+  for (const stock of deduplicatedStocks) {
     try {
-      const analysis = await triggerAnalysis(pos.stock_code, pos.user_id, 'scheduled', database);
+      // Filter holders by their configured analysis frequency
+      const dueHolders = getHoldersDueForAnalysis(stock.stockCode, stock.holderUserIds, database);
+      if (dueHolders.length === 0) {
+        // No holders need analysis at this time — skip stock entirely
+        continue;
+      }
 
-      // Store message in messages table
-      database.prepare(
-        `INSERT INTO messages (user_id, type, stock_code, stock_name, summary, detail, analysis_id, created_at)
-         VALUES (?, 'scheduled_analysis', ?, ?, ?, ?, ?, ?)`
-      ).run(
-        pos.user_id,
-        pos.stock_code,
-        pos.stock_name,
-        `定时分析：${pos.stock_name}(${pos.stock_code}) - ${analysis.actionRef}`,
-        JSON.stringify({
-          stage: analysis.stage,
-          confidence: analysis.confidence,
-          actionRef: analysis.actionRef,
-          reasoning: analysis.reasoning,
-        }),
-        analysis.id,
-        new Date().toISOString()
-      );
+      // Get current price for change detection
+      const quote = await getQuote(stock.stockCode, database);
 
-      // Push notification via SSE
-      pushToUser(pos.user_id, 'analysis', {
-        type: 'scheduled_analysis',
-        stockCode: pos.stock_code,
-        stockName: pos.stock_name,
-        analysisId: analysis.id,
+      // Get RSI for change detection
+      let currentRsi: number | null = null;
+      try {
+        const indicators = getIndicators(stock.stockCode, database);
+        currentRsi = indicators.rsi.rsi6;
+      } catch {
+        // RSI not available
+      }
+
+      // Change detection: skip AI if price change < 2% and RSI change < 5
+      if (!hasSignificantChange(stock.stockCode, quote.price, currentRsi)) {
+        // Reuse last analysis — no AI call needed
+        continue;
+      }
+
+      // Use first due holder's userId for analysis (result shared to all due holders)
+      const primaryUserId = dueHolders[0];
+      const analysis = await triggerAnalysis(stock.stockCode, primaryUserId, 'scheduled', database);
+
+      // Update change detection snapshot
+      updateSnapshot(stock.stockCode, quote.price, currentRsi);
+
+      // Distribute analysis message only to holders who are due
+      const summary = `定时分析：${stock.stockName}(${stock.stockCode}) - ${analysis.actionRef}`;
+      const detail = JSON.stringify({
+        stage: analysis.stage,
+        confidence: analysis.confidence,
+        actionRef: analysis.actionRef,
+        reasoning: analysis.reasoning,
       });
 
+      distributeAnalysisToHolders(
+        stock.stockCode,
+        stock.stockName,
+        dueHolders,
+        analysis.id,
+        summary,
+        detail,
+        'scheduled_analysis',
+        database
+      );
+
+      // Push notification via SSE only to due holders
+      for (const userId of dueHolders) {
+        pushToUser(userId, 'analysis', {
+          type: 'scheduled_analysis',
+          stockCode: stock.stockCode,
+          stockName: stock.stockName,
+          analysisId: analysis.id,
+        });
+      }
+
       analysisCount++;
-    } catch {
+    } catch (err) {
+      console.error(`[runFullAnalysis] Stock ${stock.stockCode} failed:`, err);
       // Individual analysis failure should not stop the batch
     }
   }

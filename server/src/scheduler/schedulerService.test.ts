@@ -8,12 +8,28 @@ import {
   stopScheduler,
   registerSSEClient,
   unregisterSSEClient,
+  getPostCloseTaskList,
+  executePostCloseTask,
+  PostCloseTask,
 } from './schedulerService';
 import * as analysisService from '../analysis/analysisService';
 import * as marketDataService from '../market/marketDataService';
+import { clearSnapshotCache } from './changeDetector';
+import * as tradingDayGuard from './tradingDayGuard';
 
 jest.mock('../analysis/analysisService');
 jest.mock('../market/marketDataService');
+jest.mock('../indicators/indicatorService', () => ({
+  getIndicators: jest.fn().mockReturnValue({
+    stockCode: '600000', tradeDate: '2025-01-01',
+    ma: { ma5: 10, ma10: 10, ma20: 10, ma60: 10 },
+    macd: { dif: 0.1, dea: 0.05, histogram: 0.05 },
+    kdj: { k: 50, d: 50, j: 50 },
+    rsi: { rsi6: 50, rsi12: 50, rsi24: 50 },
+    signals: { ma: 'n', macd: 'n', kdj: 'n', rsi: 'n' },
+    updatedAt: '2025-01-01',
+  }),
+}));
 
 const mockTrigger = analysisService.triggerAnalysis as jest.MockedFunction<typeof analysisService.triggerAnalysis>;
 const mockQuote = marketDataService.getQuote as jest.MockedFunction<typeof marketDataService.getQuote>;
@@ -45,6 +61,7 @@ const mockResult: any = {
 
 beforeEach(() => {
   jest.clearAllMocks();
+  clearSnapshotCache();
   mockTrigger.mockResolvedValue(mockResult);
   mockQuote.mockResolvedValue({
     stockCode: '600000', stockName: 'test', price: 11.5,
@@ -55,7 +72,7 @@ beforeEach(() => {
 afterEach(() => { stopScheduler(); });
 
 describe('runFullAnalysis', () => {
-  it('should analyze all user positions', async () => {
+  it('should analyze deduplicated stocks', async () => {
     const db = makeDb();
     addUser(db, 1); addUser(db, 2);
     addPos(db, 1, '600000', 'A'); addPos(db, 2, '000001', 'B');
@@ -64,7 +81,7 @@ describe('runFullAnalysis', () => {
     expect(mockTrigger).toHaveBeenCalledTimes(2);
   });
 
-  it('should store messages in messages table', async () => {
+  it('should distribute messages to holders', async () => {
     const db = makeDb();
     addUser(db, 1); addPos(db, 1, '600000', 'A');
     await runFullAnalysis(db);
@@ -80,7 +97,7 @@ describe('runFullAnalysis', () => {
     expect(mockTrigger).not.toHaveBeenCalled();
   });
 
-  it('should continue on individual failure', async () => {
+  it('should continue on individual stock failure', async () => {
     const db = makeDb();
     addUser(db, 1);
     addPos(db, 1, '600000', 'A'); addPos(db, 1, '000001', 'B');
@@ -89,7 +106,7 @@ describe('runFullAnalysis', () => {
     expect(count).toBe(1);
   });
 
-  it('should push SSE notification', async () => {
+  it('should push SSE notification to holders', async () => {
     const db = makeDb();
     addUser(db, 1); addPos(db, 1, '600000', 'A');
     const mockWrite = jest.fn();
@@ -100,6 +117,17 @@ describe('runFullAnalysis', () => {
     const written = mockWrite.mock.calls[0][0] as string;
     expect(written).toContain('event: analysis');
     unregisterSSEClient(mockRes);
+  });
+
+  it('should skip unchanged stocks via change detection', async () => {
+    const db = makeDb();
+    addUser(db, 1); addPos(db, 1, '600000', 'A');
+    await runFullAnalysis(db);
+    expect(mockTrigger).toHaveBeenCalledTimes(1);
+    mockTrigger.mockClear();
+    const count = await runFullAnalysis(db);
+    expect(count).toBe(0);
+    expect(mockTrigger).not.toHaveBeenCalled();
   });
 });
 
@@ -147,9 +175,9 @@ describe('buildVolatilityReport', () => {
   it('should indicate direction in reason', async () => {
     const db = makeDb();
     const up = await buildVolatilityReport('600000', 5.5, db);
-    expect(up.reason).toMatch(/上涨/);
+    expect(up.reason).toContain('大幅上涨');
     const down = await buildVolatilityReport('600000', -7.0, db);
-    expect(down.reason).toMatch(/下跌/);
+    expect(down.reason).toContain('大幅下跌');
   });
 });
 
@@ -168,5 +196,74 @@ describe('SSE client registry', () => {
     const r = { write: jest.fn() };
     registerSSEClient(1, r);
     unregisterSSEClient(r);
+  });
+});
+
+describe('getPostCloseTaskList', () => {
+  it('should return 11 tasks in correct order', () => {
+    const tasks = getPostCloseTaskList();
+    expect(tasks).toHaveLength(11);
+    expect(tasks[0].name).toBe('K线增量更新');
+    expect(tasks[0].hour).toBe(15);
+    expect(tasks[0].minute).toBe(30);
+    expect(tasks[10].name).toBe('操作复盘评价生成');
+    expect(tasks[10].hour).toBe(17);
+    expect(tasks[10].minute).toBe(20);
+  });
+
+  it('should have staggered times from 15:30 to 17:20', () => {
+    const tasks = getPostCloseTaskList();
+    for (let i = 1; i < tasks.length; i++) {
+      const prevMinutes = tasks[i - 1].hour * 60 + tasks[i - 1].minute;
+      const currMinutes = tasks[i].hour * 60 + tasks[i].minute;
+      expect(currMinutes).toBeGreaterThan(prevMinutes);
+    }
+  });
+
+  it('should include all expected task names', () => {
+    const tasks = getPostCloseTaskList();
+    const names = tasks.map(t => t.name);
+    expect(names).toContain('K线增量更新');
+    expect(names).toContain('估值分位数据更新');
+    expect(names).toContain('板块轮动阶段判断');
+    expect(names).toContain('商品传导链状态更新');
+    expect(names).toContain('大盘环境判断');
+    expect(names).toContain('市场情绪指数计算');
+    expect(names).toContain('周期底部检测');
+    expect(names).toContain('每日关注追踪');
+    expect(names).toContain('持仓集中度检查');
+    expect(names).toContain('持仓快照记录');
+    expect(names).toContain('操作复盘评价生成');
+  });
+});
+
+describe('executePostCloseTask', () => {
+  it('should skip on non-trading day', async () => {
+    const spy = jest.spyOn(tradingDayGuard, 'isTradingDay').mockReturnValue(false);
+    const executeFn = jest.fn().mockResolvedValue(undefined);
+    const task: PostCloseTask = { hour: 16, minute: 0, name: 'test', execute: executeFn };
+    const db = makeDb();
+    await executePostCloseTask(task, db);
+    expect(executeFn).not.toHaveBeenCalled();
+    spy.mockRestore();
+  });
+
+  it('should execute task on trading day', async () => {
+    const spy = jest.spyOn(tradingDayGuard, 'isTradingDay').mockReturnValue(true);
+    const executeFn = jest.fn().mockResolvedValue(undefined);
+    const task: PostCloseTask = { hour: 16, minute: 0, name: 'test', execute: executeFn };
+    const db = makeDb();
+    await executePostCloseTask(task, db);
+    expect(executeFn).toHaveBeenCalledWith(db);
+    spy.mockRestore();
+  });
+
+  it('should catch task failure without throwing', async () => {
+    const spy = jest.spyOn(tradingDayGuard, 'isTradingDay').mockReturnValue(true);
+    const executeFn = jest.fn().mockRejectedValue(new Error('boom'));
+    const task: PostCloseTask = { hour: 16, minute: 0, name: 'failTask', execute: executeFn };
+    const db = makeDb();
+    await expect(executePostCloseTask(task, db)).resolves.toBeUndefined();
+    spy.mockRestore();
   });
 });

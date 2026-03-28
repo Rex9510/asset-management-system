@@ -11,6 +11,7 @@ interface TabItem {
 
 const tabs: TabItem[] = [
   { key: 'dashboard', path: '/dashboard', label: '看板', icon: '📊' },
+  { key: 'position', path: '/position', label: '持仓', icon: '📦' },
   { key: 'chat', path: '/chat', label: '对话', icon: '💬' },
   { key: 'messages', path: '/messages', label: '消息', icon: '🔔' },
   { key: 'profile', path: '/profile', label: '我的', icon: '👤' },
@@ -52,9 +53,12 @@ const BottomNav: React.FC = () => {
             type="button"
             style={{
               ...styles.tabButton,
-              color: active ? '#1890ff' : '#999',
+              color: active ? '#4f46e5' : '#999',
             }}
-            onClick={() => navigate(tab.path)}
+            onClick={() => {
+              window.dispatchEvent(new CustomEvent('tab-switch-refresh', { detail: { tab: tab.key } }));
+              navigate(tab.path);
+            }}
             aria-current={active ? 'page' : undefined}
             aria-label={tab.label}
           >
@@ -66,7 +70,7 @@ const BottomNav: React.FC = () => {
                 </span>
               )}
             </span>
-            <span style={{ fontSize: '11px', marginTop: '2px' }}>{tab.label}</span>
+            <span style={{ fontSize: '12px', marginTop: '2px' }}>{tab.label}</span>
           </button>
         );
       })}
@@ -80,17 +84,19 @@ const styles: Record<string, React.CSSProperties> = {
     bottom: 0,
     left: 0,
     right: 0,
-    height: '56px',
-    background: '#fff',
-    borderTop: '1px solid #e8e8e8',
+    height: '60px',
+    background: 'rgba(255,255,255,0.85)',
+    backdropFilter: 'blur(20px)',
+    WebkitBackdropFilter: 'blur(20px)',
+    borderTop: '1px solid rgba(0,0,0,0.06)',
     display: 'flex',
     alignItems: 'center',
-    justifyContent: 'space-around',
+    justifyContent: 'stretch',
     zIndex: 1000,
-    maxWidth: '428px',
-    margin: '0 auto',
+    boxShadow: '0 -2px 20px rgba(0,0,0,0.04)',
   },
   tabButton: {
+    flex: 1,
     display: 'flex',
     flexDirection: 'column' as const,
     alignItems: 'center',
@@ -99,9 +105,9 @@ const styles: Record<string, React.CSSProperties> = {
     background: 'transparent',
     cursor: 'pointer',
     padding: '4px 0',
-    minWidth: '44px',
     minHeight: '44px',
     WebkitTapHighlightColor: 'transparent',
+    transition: 'all 0.2s ease',
   },
   iconWrap: {
     position: 'relative' as const,
@@ -115,7 +121,7 @@ const styles: Record<string, React.CSSProperties> = {
     position: 'absolute' as const,
     top: '-4px',
     right: '-10px',
-    background: '#ff4d4f',
+    background: 'linear-gradient(135deg, #ff6b6b, #ee5a24)',
     color: '#fff',
     fontSize: '10px',
     fontWeight: 700,
@@ -126,6 +132,7 @@ const styles: Record<string, React.CSSProperties> = {
     textAlign: 'center' as const,
     padding: '0 4px',
     boxSizing: 'border-box' as const,
+    boxShadow: '0 2px 6px rgba(238,90,36,0.3)',
   },
 };
 

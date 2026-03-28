@@ -3,7 +3,7 @@ import { authMiddleware } from '../middleware/authMiddleware';
 import { getQuote, MarketQuote } from './marketDataService';
 import { getDatabase } from '../db/connection';
 
-const SSE_POLL_INTERVAL_MS = 5000; // 5 seconds polling interval (within 3-5s range)
+const SSE_POLL_INTERVAL_MS = 1800000; // 30 minutes polling interval (二期调整)
 
 const router = Router();
 

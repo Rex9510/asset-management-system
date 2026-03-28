@@ -1,5 +1,5 @@
 // Extend Error interface for Express body-parser errors
-declare interface Error {
+interface Error {
   type?: string;
   status?: number;
 }

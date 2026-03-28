@@ -12,6 +12,12 @@ import { estimateRecovery, estimateProfit } from './estimateService';
 import { getUserTrustLevel, filterActionByTrust, isNewUser, generateColdStartRecords } from './trustService';
 import { Errors } from '../errors/AppError';
 import { isValidStockCode } from '../positions/positionService';
+import { getValuationFromDb } from '../valuation/valuationService';
+import { getCurrentRotation } from '../rotation/rotationService';
+import { getCurrentChainStatus } from '../chain/commodityChainService';
+import { getCurrentSentiment } from '../sentiment/sentimentService';
+import { getEvents } from '../events/eventCalendarService';
+import { getCurrentMarketEnv } from '../marketenv/marketEnvService';
 
 // --- Types ---
 
@@ -34,6 +40,7 @@ export interface AnalysisRow {
   recovery_estimate: string | null;
   profit_estimate: string | null;
   risk_alerts: string | null;
+  market_price: number | null;
   created_at: string;
 }
 
@@ -97,6 +104,79 @@ function toAnalysisResponse(row: AnalysisRow): AnalysisResponse {
 }
 
 
+// --- 周期品相关ETF代码（用于判断是否注入传导链状态） ---
+const CYCLICAL_ETF_CODES = new Set([
+  '512400', // 有色
+  '515220', // 煤炭
+  '516020', // 化工
+  '159886', // 橡胶
+  '161129', // 原油
+  '518880', // 黄金
+  '161226', // 白银
+]);
+
+// --- Build additional context string for AI prompt ---
+
+export function buildAdditionalContextString(
+  stockCode: string,
+  valuation: { pePercentile: number; pbPercentile: number; peZone: string; pbZone: string; dataYears: number } | null,
+  rotation: { currentPhase: string; phaseLabel: string } | null,
+  chainStatus: { nodes: { name: string; shortName: string; status: string; change10d: number }[] } | null,
+  sentiment: { score: number; label: string } | null,
+  events: { name: string; windowStatus: string; windowLabel: string }[],
+): string {
+  const parts: string[] = [];
+
+  // 估值分位
+  if (valuation) {
+    parts.push(`估值分位: PE${valuation.pePercentile.toFixed(0)}%分位(${valuation.peZone}), PB${valuation.pbPercentile.toFixed(0)}%分位(${valuation.pbZone}), ${valuation.dataYears}年数据`);
+  }
+
+  // 板块轮动阶段
+  if (rotation) {
+    let rotationLine = `当前轮动阶段: ${rotation.currentPhase} ${rotation.phaseLabel}`;
+    // 判断股票是否处于当前活跃板块 → 提高关注度
+    const isInActiveRotation = isCyclicalStock(stockCode) && rotation.currentPhase === 'P2';
+    if (isInActiveRotation) {
+      rotationLine += ' [该股处于当前活跃轮动板块，关注度提高]';
+    }
+    parts.push(rotationLine);
+  }
+
+  // 商品传导链状态（仅周期品注入）
+  if (chainStatus && isCyclicalStock(stockCode)) {
+    const chainSummary = chainStatus.nodes
+      .map(n => `${n.shortName}:${n.status === 'activated' ? '激活' : n.status === 'transmitting' ? '传导中' : '未激活'}`)
+      .join('→');
+    parts.push(`传导链: ${chainSummary}`);
+  }
+
+  // 市场情绪
+  if (sentiment) {
+    parts.push(`市场情绪: ${sentiment.score}(${sentiment.label})`);
+  }
+
+  // 近期相关事件
+  if (events.length > 0) {
+    const eventLines = events
+      .filter(e => e.windowStatus !== 'none')
+      .slice(0, 3)
+      .map(e => `${e.name}(${e.windowLabel})`);
+    if (eventLines.length > 0) {
+      parts.push(`近期事件: ${eventLines.join('; ')}`);
+    }
+  }
+
+  return parts.join('\n');
+}
+
+/**
+ * 判断股票是否为周期品相关（用于决定是否注入传导链状态）
+ */
+export function isCyclicalStock(stockCode: string): boolean {
+  return CYCLICAL_ETF_CODES.has(stockCode);
+}
+
 // --- Build analysis context ---
 
 export async function buildAnalysisContext(
@@ -140,13 +220,13 @@ export async function buildAnalysisContext(
     // Technical indicators not available - continue without them
   }
 
-  // 3. Get news (never throws, returns empty array on failure)
+  // 3. Get news — Prompt瘦身：仅保留标题，不发送完整摘要
   let newsItems: AnalysisContext['newsItems'] = [];
   try {
     const news = await getNews(stockCode, 5, database);
     newsItems = news.map((n) => ({
       title: n.title,
-      summary: n.summary,
+      summary: '',  // Prompt瘦身：不发送完整摘要，仅标题
       source: n.source,
       publishedAt: n.publishedAt,
     }));
@@ -180,6 +260,31 @@ export async function buildAnalysisContext(
     // Risk alerts not available
   }
 
+  // 6. 二期扩展：收集额外上下文数据
+  let additionalContext: string | undefined;
+  try {
+    const valuation = getValuationFromDb(stockCode, database);
+    const rotation = getCurrentRotation(database);
+    const chainStatus = getCurrentChainStatus(database);
+    const sentiment = getCurrentSentiment(database);
+    const upcomingEvents = getEvents(7, database);
+
+    const contextStr = buildAdditionalContextString(
+      stockCode,
+      valuation,
+      rotation ? { currentPhase: rotation.currentPhase, phaseLabel: rotation.phaseLabel } : null,
+      chainStatus,
+      sentiment ? { score: sentiment.score, label: sentiment.label } : null,
+      upcomingEvents,
+    );
+
+    if (contextStr.length > 0) {
+      additionalContext = contextStr;
+    }
+  } catch {
+    // Additional context not available — continue without
+  }
+
   return {
     stockCode,
     stockName: quote.stockName,
@@ -191,6 +296,7 @@ export async function buildAnalysisContext(
     technicalIndicators,
     newsItems: newsItems.length > 0 ? newsItems : undefined,
     positionData,
+    additionalContext,
   };
 }
 
@@ -245,6 +351,39 @@ export async function triggerAnalysis(
   const allRiskAlerts = [...existingRiskAlerts, ...crossValidation.warnings.filter(
     (w) => !existingRiskAlerts.includes(w)
   )];
+
+  // 二期：熊市环境下自动下调置信度（confidenceAdjust from marketEnvService）
+  try {
+    const marketEnv = getCurrentMarketEnv(database);
+    if (marketEnv && marketEnv.confidenceAdjust !== 0) {
+      result.confidence = Math.max(0, Math.min(100, result.confidence + marketEnv.confidenceAdjust));
+    }
+    if (marketEnv && marketEnv.riskTip && !allRiskAlerts.includes(marketEnv.riskTip)) {
+      allRiskAlerts.push(marketEnv.riskTip);
+    }
+  } catch {
+    // Market env not available — skip adjustment
+  }
+
+  // 二期：情绪指数极端值提示
+  try {
+    const sentiment = getCurrentSentiment(database);
+    if (sentiment) {
+      if (sentiment.score < 25) {
+        const tip = '市场恐慌可能是低位布局机会';
+        if (!allRiskAlerts.includes(tip)) {
+          allRiskAlerts.push(tip);
+        }
+      } else if (sentiment.score >= 75) {
+        const tip = '市场过热需警惕回调风险';
+        if (!allRiskAlerts.includes(tip)) {
+          allRiskAlerts.push(tip);
+        }
+      }
+    }
+  } catch {
+    // Sentiment not available — skip
+  }
 
   // Apply progressive trust strategy: filter actionRef based on user trust level
   const trustLevel = getUserTrustLevel(userId, database);
@@ -307,8 +446,8 @@ export async function triggerAnalysis(
       user_id, stock_code, stock_name, trigger_type, stage, space_estimate,
       key_signals, action_ref, batch_plan, confidence, reasoning,
       data_sources, technical_indicators, news_summary,
-      recovery_estimate, profit_estimate, risk_alerts, created_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      recovery_estimate, profit_estimate, risk_alerts, market_price, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(
     userId,
     stockCode,
@@ -327,6 +466,7 @@ export async function triggerAnalysis(
     recoveryEstimateJson,
     profitEstimateJson,
     allRiskAlerts.length > 0 ? JSON.stringify(allRiskAlerts) : JSON.stringify(result.riskAlerts || []),
+    context.marketData.price,
     now,
   );
 

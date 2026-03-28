@@ -6,6 +6,16 @@ const config: Config = {
   roots: ['<rootDir>/src'],
   testMatch: ['**/*.test.ts', '**/*.test.tsx'],
   moduleFileExtensions: ['ts', 'tsx', 'js', 'json'],
+  transform: {
+    '^.+\\.tsx?$': ['ts-jest', {
+      tsconfig: {
+        jsx: 'react-jsx',
+        module: 'commonjs',
+        esModuleInterop: true,
+        allowJs: true,
+      },
+    }],
+  },
 };
 
 export default config;

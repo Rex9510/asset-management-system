@@ -309,9 +309,12 @@ describe('indicatorService - Database Operations', () => {
       expect(result!.ma.ma60).toBeNull(); // Not enough data for MA60
     });
 
-    it('should update cached data on recalculation', () => {
+    it('should update cached data on recalculation', async () => {
       insertMarketHistory(testDb, '600000', 70);
       const first = calculateAndCacheIndicators('600000', testDb);
+
+      // Wait a small amount to ensure different timestamp
+      await new Promise(resolve => setTimeout(resolve, 10));
 
       // Add more data
       const stmt = testDb.prepare(

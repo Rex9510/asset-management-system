@@ -38,3 +38,17 @@ export function showErrorToast(message: string, duration = 3000): void {
     }, 300);
   }, duration);
 }
+
+export function showToast(message: string, duration = 2000): void {
+  const container = getToastContainer();
+  const toast = document.createElement('div');
+  toast.textContent = message;
+  toast.style.cssText =
+    'background:#4a69bd;color:#fff;padding:8px 16px;border-radius:8px;font-size:14px;box-shadow:0 2px 8px rgba(0,0,0,0.15);pointer-events:auto;opacity:0;transition:opacity 0.3s;';
+  container.appendChild(toast);
+  requestAnimationFrame(() => { toast.style.opacity = '1'; });
+  setTimeout(() => {
+    toast.style.opacity = '0';
+    setTimeout(() => { toast.remove(); }, 300);
+  }, duration);
+}

@@ -1,6 +1,7 @@
 import Database from 'better-sqlite3';
 import { getDatabase } from '../db/connection';
 import { Errors } from '../errors/AppError';
+import { ensureStockHistory } from '../market/historyService';
 
 // A股代码格式：6位数字，以指定前缀开头
 const VALID_STOCK_PREFIXES = [
@@ -39,6 +40,7 @@ export interface PositionResponse {
   currentPrice: number | null;
   profitLoss: number | null;
   profitLossPercent: number | null;
+  changePercent: number | null;
   holdingDays: number | null;
   createdAt: string;
   updatedAt: string;
@@ -103,7 +105,9 @@ export function calculateProfitLossPercent(costPrice: number, currentPrice: numb
   return ((currentPrice - costPrice) / costPrice) * 100;
 }
 
-function toPositionResponse(row: PositionRow, currentPrice: number | null): PositionResponse {
+function toPositionResponse(row: PositionRow, marketData: { price: number; changePercent: number } | null): PositionResponse {
+  const currentPrice = marketData?.price ?? null;
+  const changePercent = marketData?.changePercent ?? null;
   const isHolding = row.position_type === 'holding' && row.cost_price != null && row.shares != null;
   return {
     id: row.id,
@@ -117,15 +121,16 @@ function toPositionResponse(row: PositionRow, currentPrice: number | null): Posi
     currentPrice,
     profitLoss: isHolding && currentPrice != null ? calculateProfitLoss(row.cost_price!, row.shares!, currentPrice) : null,
     profitLossPercent: isHolding && currentPrice != null ? calculateProfitLossPercent(row.cost_price!, currentPrice) : null,
+    changePercent,
     holdingDays: row.buy_date ? calculateHoldingDays(row.buy_date) : null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
 }
 
-function getCurrentPrice(db: Database.Database, stockCode: string): number | null {
-  const row = db.prepare('SELECT price FROM market_cache WHERE stock_code = ?').get(stockCode) as { price: number } | undefined;
-  return row ? row.price : null;
+function getCurrentPrice(db: Database.Database, stockCode: string): { price: number; changePercent: number } | null {
+  const row = db.prepare('SELECT price, change_percent FROM market_cache WHERE stock_code = ?').get(stockCode) as { price: number; change_percent: number } | undefined;
+  return row ? { price: row.price, changePercent: row.change_percent } : null;
 }
 
 /**
@@ -142,8 +147,8 @@ export function getPositions(userId: number, db?: Database.Database, type?: Posi
   sql += ' ORDER BY created_at DESC';
   const rows = database.prepare(sql).all(...params) as PositionRow[];
   return rows.map((row) => {
-    const currentPrice = getCurrentPrice(database, row.stock_code);
-    return toPositionResponse(row, currentPrice);
+    const marketData = getCurrentPrice(database, row.stock_code);
+    return toPositionResponse(row, marketData);
   });
 }
 
@@ -156,8 +161,8 @@ export function getPositionById(id: number, userId: number, db?: Database.Databa
     .prepare('SELECT * FROM positions WHERE id = ? AND user_id = ?')
     .get(id, userId) as PositionRow | undefined;
   if (!row) return null;
-  const currentPrice = getCurrentPrice(database, row.stock_code);
-  return toPositionResponse(row, currentPrice);
+  const marketData = getCurrentPrice(database, row.stock_code);
+  return toPositionResponse(row, marketData);
 }
 
 /**
@@ -203,6 +208,12 @@ export function createPosition(userId: number, input: CreatePositionInput, db?: 
     .run(userId, input.stockCode, input.stockName.trim(), positionType, costPrice, shares, buyDate, now, now);
 
   const id = result.lastInsertRowid as number;
+
+  // 异步拉取该股票的历史K线数据（不阻塞响应）
+  ensureStockHistory(input.stockCode, database).catch(() => {
+    // 历史数据拉取失败不影响持仓创建
+  });
+
   return getPositionById(id, userId, database)!;
 }
 
@@ -262,4 +273,32 @@ export function deletePosition(id: number, userId: number, db?: Database.Databas
   }
 
   return true;
+}
+
+
+/**
+ * 计算用户今日收益。
+ * 今日收益 = sum(每只持仓股票的 当前价 * 股数 * 涨跌幅 / (100 + 涨跌幅))
+ * 即 sum((currentPrice - yesterdayClose) * shares)
+ * 其中 yesterdayClose = currentPrice / (1 + changePercent/100)
+ */
+export function getTodayPnl(userId: number, db?: Database.Database): number {
+  const database = db || getDatabase();
+
+  const positions = database.prepare(
+    `SELECT p.stock_code, p.shares, mc.price, mc.change_percent
+     FROM positions p
+     INNER JOIN market_cache mc ON p.stock_code = mc.stock_code
+     WHERE p.user_id = ? AND p.position_type = 'holding' AND p.shares > 0`
+  ).all(userId) as { stock_code: string; shares: number; price: number; change_percent: number }[];
+
+  let todayPnl = 0;
+  for (const p of positions) {
+    if (p.price > 0 && p.shares > 0 && p.change_percent != null) {
+      const yesterdayClose = p.price / (1 + p.change_percent / 100);
+      todayPnl += (p.price - yesterdayClose) * p.shares;
+    }
+  }
+
+  return Math.round(todayPnl * 100) / 100;
 }

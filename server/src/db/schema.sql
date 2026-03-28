@@ -43,6 +43,7 @@ CREATE TABLE IF NOT EXISTS analyses (
     recovery_estimate TEXT,
     profit_estimate TEXT,
     risk_alerts TEXT,
+    market_price REAL,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users(id)
 );

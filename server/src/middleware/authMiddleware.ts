@@ -14,13 +14,19 @@ export function authMiddleware(
   next: NextFunction
 ): void {
   const authHeader = req.headers.authorization;
+  const queryToken = req.query.token as string | undefined;
 
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
+  let token: string | undefined;
+  if (authHeader && authHeader.startsWith('Bearer ')) {
+    token = authHeader.slice(7);
+  } else if (queryToken) {
+    token = queryToken;
+  }
+
+  if (!token) {
     next(Errors.unauthorized('未提供认证令牌'));
     return;
   }
-
-  const token = authHeader.slice(7);
 
   try {
     const user = verifyToken(token);

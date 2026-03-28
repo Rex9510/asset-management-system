@@ -118,7 +118,8 @@ export async function sendMessage(
   let aiResponse: string;
   try {
     aiResponse = await provider.chat(messages, CHAT_SYSTEM_PROMPT);
-  } catch {
+  } catch (err) {
+    console.error('[ChatService] AI调用失败:', err);
     throw Errors.internal('AI服务暂时不可用，请稍后重试');
   }
 

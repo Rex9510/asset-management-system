@@ -9,7 +9,11 @@ const MAX_FAILED_ATTEMPTS = 5;
 const LOCK_DURATION_MINUTES = 15;
 
 function getJwtSecret(): string {
-  return process.env.JWT_SECRET || 'default-dev-secret';
+  const secret = process.env.JWT_SECRET;
+  if (!secret && process.env.NODE_ENV === 'production') {
+    throw new Error('JWT_SECRET 环境变量未配置，生产环境必须设置');
+  }
+  return secret || 'default-dev-secret';
 }
 
 function getJwtExpiresIn(): SignOptions['expiresIn'] {
@@ -40,12 +44,17 @@ export function clearTokenBlacklist(): void {
 export function register(
   username: string,
   password: string,
+  agreedTerms: boolean,
   db?: Database.Database
 ): AuthResult {
   const database = db || getDatabase();
 
   if (!username || !password) {
     throw Errors.badRequest('用户名和密码不能为空');
+  }
+
+  if (!agreedTerms) {
+    throw Errors.badRequest('必须同意用户协议和免责声明才能注册');
   }
 
   const existing = database
@@ -59,8 +68,8 @@ export function register(
   const passwordHash = bcrypt.hashSync(password, SALT_ROUNDS);
 
   const result = database
-    .prepare('INSERT INTO users (username, password_hash) VALUES (?, ?)')
-    .run(username, passwordHash);
+    .prepare('INSERT INTO users (username, password_hash, agreed_terms) VALUES (?, ?, ?)')
+    .run(username, passwordHash, agreedTerms ? 1 : 0);
 
   const userId = result.lastInsertRowid as number;
 
@@ -76,6 +85,7 @@ export function register(
 export function login(
   username: string,
   password: string,
+  userAgreedTerms?: boolean,
   db?: Database.Database
 ): AuthResult {
   const database = db || getDatabase();
@@ -85,13 +95,14 @@ export function login(
   }
 
   const user = database
-    .prepare('SELECT id, username, password_hash, failed_login_count, locked_until FROM users WHERE username = ?')
+    .prepare('SELECT id, username, password_hash, failed_login_count, locked_until, agreed_terms FROM users WHERE username = ?')
     .get(username) as {
       id: number;
       username: string;
       password_hash: string;
       failed_login_count: number;
       locked_until: string | null;
+      agreed_terms?: number;
     } | undefined;
 
   if (!user) {
@@ -132,10 +143,23 @@ export function login(
     throw Errors.unauthorized('用户名或密码错误');
   }
 
-  // Reset failed attempts on successful login
+  // Check if user has agreed to terms
+  // If user just checked the box on login page (for existing accounts), update the database
+  const currentAgreed = user.agreed_terms || 0;
+  if (currentAgreed !== 1 && userAgreedTerms === true) {
+    // User has just agreed, update database
+    database
+      .prepare('UPDATE users SET agreed_terms = 1 WHERE id = ?')
+      .run(user.id);
+  }
+  if (currentAgreed !== 1 && !userAgreedTerms) {
+    throw Errors.unauthorized('请先阅读并同意《用户协议与免责声明》才能登录');
+  }
+
+  // Reset failed attempts on successful login and update last_login_at
   database
-    .prepare('UPDATE users SET failed_login_count = 0, locked_until = NULL WHERE id = ?')
-    .run(user.id);
+    .prepare('UPDATE users SET failed_login_count = 0, locked_until = NULL, last_login_at = ? WHERE id = ?')
+    .run(new Date().toISOString(), user.id);
 
   const token = jwt.sign(
     { id: user.id, username: user.username },

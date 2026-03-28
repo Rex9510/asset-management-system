@@ -79,6 +79,8 @@ describe('LoginPage', () => {
 
     await waitFor(() => {
       expect(localStorage.getItem('token')).toBe('jwt-token-123');
+      const storedUser = JSON.parse(localStorage.getItem('user')!);
+      expect(storedUser).toEqual({ id: 1, username: 'testuser' });
     });
     await waitFor(() => {
       expect(screen.getByTestId('home-page')).toBeInTheDocument();
@@ -100,6 +102,8 @@ describe('LoginPage', () => {
     await waitFor(() => {
       expect(mockedAuth.registerUser).toHaveBeenCalledWith('newuser', 'password123');
       expect(localStorage.getItem('token')).toBe('new-token-456');
+      const storedUser = JSON.parse(localStorage.getItem('user')!);
+      expect(storedUser).toEqual({ id: 2, username: 'newuser' });
     });
     await waitFor(() => {
       expect(screen.getByTestId('home-page')).toBeInTheDocument();

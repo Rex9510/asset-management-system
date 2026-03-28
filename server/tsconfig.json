@@ -15,5 +15,6 @@
     "sourceMap": true
   },
   "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist", "**/*.test.ts"]
+  "files": ["src/types/express.d.ts"],
+  "exclude": ["node_modules", "dist", "**/*.test.ts", "src/scripts/**/*.ts"]
 }
