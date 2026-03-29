@@ -1,7 +1,7 @@
 {
   "name": "ai-investment-assistant",
   "version": "1.0.0",
-  "description": "AI智能投资陪伴助手 MVP版",
+  "description": "投资喵 - AI智能投资陪伴助手 MVP版",
   "private": true,
   "scripts": {
     "dev:server": "cd server && npm run dev",

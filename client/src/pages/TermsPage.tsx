@@ -21,7 +21,7 @@ const TermsPage: React.FC = () => {
         <section style={styles.section}>
           <h2 style={styles.sectionTitle}>1. 服务说明</h2>
           <p style={styles.paragraph}>
-            AI智能投资陪伴助手（以下简称"本服务"）是一款面向投资爱好者的<b>学习工具和辅助分析工具</b>，
+            投资喵（以下简称"本服务"）是一款面向投资爱好者的<b>学习工具和辅助分析工具</b>，
             旨在为个人投资者提供市场数据展示、技术指标计算、AI分析参考等服务。
           </p>
           <p style={styles.paragraph}>

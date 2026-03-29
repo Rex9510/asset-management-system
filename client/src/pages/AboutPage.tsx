@@ -16,7 +16,7 @@ const AboutPage: React.FC = () => {
         {/* App Info */}
         <div style={styles.appCard}>
           <div style={styles.appIcon}>📊</div>
-          <div style={styles.appName} data-testid="app-name">资产管理系统</div>
+          <div style={styles.appName} data-testid="app-name">投资喵</div>
           <div style={styles.appVersion} data-testid="app-version">v2.0.0</div>
         </div>
 
