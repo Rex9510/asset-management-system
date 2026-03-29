@@ -1,7 +1,7 @@
 {
   "name": "ai-investment-assistant-server",
   "version": "1.0.0",
-  "description": "AI智能投资陪伴助手 - 后端服务",
+  "description": "投资喵 - AI智能投资陪伴助手 - 后端服务",
   "main": "dist/index.js",
   "scripts": {
     "dev": "ts-node-dev --respawn --transpile-only src/index.ts",

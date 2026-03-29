@@ -87,7 +87,7 @@ const LoginPage: React.FC = () => {
 
   return (
     <div style={styles.container}>
-      <h1 style={styles.title}>AI智能投资陪伴助手</h1>
+      <h1 style={styles.title}>投资喵</h1>
 
       <div style={styles.tabs}>
         <button
