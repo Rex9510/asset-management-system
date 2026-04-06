@@ -22,6 +22,8 @@ const mockMonitors: cycleApi.CycleMonitorData[] = [
     updatedAt: '2024-01-15T16:40:00Z',
     currentMonths: 3,
     cycleLengthMonths: 72,
+    currentPrice: 1856.00,
+    changePercent: 2.35,
   },
   {
     id: 2,
@@ -35,6 +37,8 @@ const mockMonitors: cycleApi.CycleMonitorData[] = [
     updatedAt: '2024-01-15T16:40:00Z',
     currentMonths: 6,
     cycleLengthMonths: 36,
+    currentPrice: 28.65,
+    changePercent: -1.28,
   },
 ];
 

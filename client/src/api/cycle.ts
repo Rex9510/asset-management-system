@@ -12,6 +12,8 @@ export interface CycleMonitorData {
   updatedAt: string;
   currentMonths: number | null;
   cycleLengthMonths: number | null;
+  currentPrice: number | null;
+  changePercent: number | null;
 }
 
 export async function getCycleMonitors(): Promise<CycleMonitorData[]> {

@@ -63,6 +63,8 @@ export interface CycleMonitor {
   updatedAt: string;
   currentMonths: number | null;
   cycleLengthMonths: number | null;
+  currentPrice: number | null;
+  changePercent: number | null;
 }
 
 export interface BottomSignalResult {
@@ -110,13 +112,19 @@ function parseCurrentMonths(description: string | null): number | null {
   return null;
 }
 
-function toResponse(row: any): CycleMonitor {
+function toResponse(row: any, db: Database.Database): CycleMonitor {
   const cycleLength = row.cycle_length as string | null;
   const description = row.description as string | null;
+  const stockCode = row.stock_code as string;
+
+  // Get latest price from market_cache
+  const marketRow = db.prepare('SELECT price, change_percent FROM market_cache WHERE stock_code = ?').get(stockCode) as
+    { price: number; change_percent: number } | undefined;
+
   return {
     id: row.id,
     userId: row.user_id,
-    stockCode: row.stock_code,
+    stockCode: stockCode,
     stockName: row.stock_name,
     cycleLength: cycleLength,
     currentPhase: row.current_phase,
@@ -126,6 +134,8 @@ function toResponse(row: any): CycleMonitor {
     updatedAt: row.updated_at,
     currentMonths: parseCurrentMonths(description),
     cycleLengthMonths: parseCycleLengthMonths(cycleLength),
+    currentPrice: marketRow?.price ?? null,
+    changePercent: marketRow?.change_percent ?? null,
   };
 }
 
@@ -489,7 +499,7 @@ export function getMonitors(userId: number, db?: Database.Database): CycleMonito
   const rows = database.prepare(
     `SELECT * FROM cycle_monitors WHERE user_id = ? ORDER BY updated_at DESC`
   ).all(userId);
-  return rows.map(toResponse);
+  return rows.map(row => toResponse(row, database));
 }
 
 /**
@@ -535,7 +545,7 @@ export async function addMonitor(
 
   if (existing) {
     const row = database.prepare('SELECT * FROM cycle_monitors WHERE id = ?').get(existing.id);
-    return toResponse(row);
+    return toResponse(row, database);
   }
 
   // Resolve stock name (if we haven't already from name lookup)
@@ -572,7 +582,7 @@ export async function addMonitor(
   );
 
   const row = database.prepare('SELECT * FROM cycle_monitors WHERE id = ?').get(info.lastInsertRowid);
-  return toResponse(row);
+  return toResponse(row, database);
 }
 
 /**
