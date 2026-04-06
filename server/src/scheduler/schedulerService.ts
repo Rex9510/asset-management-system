@@ -524,6 +524,13 @@ export async function checkVolatility(
   changePercent: number,
   db?: Database.Database
 ): Promise<void> {
+  // 双重保险：非交易日/非交易时间不发送波动提醒
+  // 即使上层漏了，这里也挡住
+  const now = new Date();
+  if (!isTradingDay(now) || !isTradingHours(now)) {
+    return;
+  }
+
   const absChange = Math.abs(changePercent);
 
   if (absChange > 5) {

@@ -117,6 +117,19 @@ const MonitorItem: React.FC<{
 }> = ({ monitor, onDelete, isLast }) => {
   const cfg = statusConfig[monitor.status] || statusConfig.falling;
 
+  const getPriceColor = (value: number | null): string => {
+    if (value == null || value === 0) return '#333';
+    return value > 0 ? '#ff4757' : '#2ed573';
+  };
+
+  const formatPercent = (value: number | null): string => {
+    if (value == null) return '--';
+    const sign = value > 0 ? '+' : '';
+    return `${sign}${value.toFixed(2)}%`;
+  };
+
+  const priceColor = getPriceColor(monitor.changePercent);
+
   return (
     <div
       style={{ ...st.item, borderBottom: isLast ? 'none' : '1px solid #f0f0f0' }}
@@ -127,23 +140,35 @@ const MonitorItem: React.FC<{
           <span style={st.stockName}>{monitor.stockName}</span>
           <span style={st.stockCode}>{monitor.stockCode}</span>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-          <span
-            style={{ ...st.statusBadge, background: cfg.bg, color: cfg.color }}
-            data-testid={`cycle-status-${monitor.id}`}
-            data-status={monitor.status}
-          >
-            {cfg.emoji} {cfg.label}
-          </span>
-          <button
-            type="button"
-            style={st.deleteBtn}
-            onClick={() => onDelete(monitor.id)}
-            aria-label={`删除${monitor.stockName}监控`}
-            data-testid={`cycle-delete-${monitor.id}`}
-          >
-            🗑
-          </button>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: '4px' }}>
+          {monitor.currentPrice != null && (
+            <div style={st.priceRow}>
+              <span style={st.currentPrice}>{monitor.currentPrice.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</span>
+              {monitor.changePercent != null && (
+                <span style={{ ...st.changeTag, background: priceColor === '#ff4757' ? 'rgba(255,71,87,0.1)' : 'rgba(46,213,115,0.1)', color: priceColor }}>
+                  {formatPercent(monitor.changePercent)}
+                </span>
+              )}
+            </div>
+          )}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <span
+              style={{ ...st.statusBadge, background: cfg.bg, color: cfg.color }}
+              data-testid={`cycle-status-${monitor.id}`}
+              data-status={monitor.status}
+            >
+              {cfg.emoji} {cfg.label}
+            </span>
+            <button
+              type="button"
+              style={st.deleteBtn}
+              onClick={() => onDelete(monitor.id)}
+              aria-label={`删除${monitor.stockName}监控`}
+              data-testid={`cycle-delete-${monitor.id}`}
+            >
+              🗑
+            </button>
+          </div>
         </div>
       </div>
       {monitor.cycleLength && (
@@ -338,6 +363,23 @@ const st: Record<string, React.CSSProperties> = {
     fontSize: '11px',
     color: '#999',
     marginLeft: '4px',
+  },
+  priceRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '6px',
+  },
+  currentPrice: {
+    fontSize: '18px',
+    fontWeight: 700,
+    color: '#333',
+  },
+  changeTag: {
+    fontSize: '12px',
+    padding: '2px 6px',
+    borderRadius: '4px',
+    fontWeight: 600,
+    whiteSpace: 'nowrap',
   },
   statusBadge: {
     fontSize: '10px',
