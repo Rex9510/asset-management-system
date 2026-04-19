@@ -1,0 +1,48 @@
+# merge / push 到 main 后：SSH 到服务器拉代码、安装依赖、构建、重启 PM2
+#
+# 需在 GitHub 仓库 Settings → Secrets and variables → Actions 配置：
+#   DEPLOY_HOST      服务器公网 IP 或域名
+#   DEPLOY_USER      SSH 登录用户（如 admin）
+#   DEPLOY_SSH_KEY   能登录该用户的私钥全文（含 -----BEGIN ... END-----）
+# 可选：
+#   DEPLOY_PATH      项目绝对路径，不配置则默认 /var/www/asset-management-system
+# SSH 非 22 时：在下方 appleboy/ssh-action 增加一行 port: 你的端口
+#
+# 注意：GitHub 托管 runner 的出口 IP 不固定。若安全组只放行固定 IP，
+# 请改用「在服务器上装 self-hosted runner」，或放行 SSH、或用 Tailscale 等。
+
+name: Deploy production
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: SSH deploy
+        uses: appleboy/ssh-action@v1.2.2
+        with:
+          host: ${{ secrets.DEPLOY_HOST }}
+          username: ${{ secrets.DEPLOY_USER }}
+          key: ${{ secrets.DEPLOY_SSH_KEY }}
+          script_stop: true
+          command_timeout: 20m
+          script: |
+            set -euo pipefail
+            APP_DIR='${{ secrets.DEPLOY_PATH }}'
+            if [ -z "$APP_DIR" ] || [ "$APP_DIR" = "" ]; then
+              APP_DIR=/var/www/asset-management-system
+            fi
+            cd "$APP_DIR"
+            git fetch origin main
+            git reset --hard origin/main
+            (cd server && npm ci && npm run build)
+            (cd client && npm ci && npm run build)
+            pm2 reload ai-investment --update-env || pm2 restart ai-investment --update-env
