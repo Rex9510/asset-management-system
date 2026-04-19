@@ -575,6 +575,7 @@ const styles: Record<string, React.CSSProperties> = {
     boxShadow: '0 2px 12px rgba(0,0,0,0.06)',
     border: '1px solid rgba(255,255,255,0.6)',
     animation: 'fadeIn 0.3s ease',
+    minWidth: 0,
   },
   header: {
     display: 'flex',
@@ -756,9 +757,11 @@ const styles: Record<string, React.CSSProperties> = {
   },
   weekRow: {
     display: 'grid',
-    gridTemplateColumns: 'repeat(7, 1fr)',
+    gridTemplateColumns: 'repeat(7, minmax(0, 1fr))',
     gap: '4px',
     marginBottom: '4px',
+    width: '100%',
+    minWidth: 0,
   },
   weekHeadCell: {
     textAlign: 'center' as const,
@@ -766,15 +769,21 @@ const styles: Record<string, React.CSSProperties> = {
     fontWeight: 700,
     color: '#8b8fa3',
     padding: '4px 0',
+    minWidth: 0,
   },
   calGrid: {
     display: 'grid',
-    gridTemplateColumns: 'repeat(7, 1fr)',
+    gridTemplateColumns: 'repeat(7, minmax(0, 1fr))',
     gap: '6px',
+    width: '100%',
+    minWidth: 0,
   },
   calCellBtn: {
     aspectRatio: '1',
     minHeight: '44px',
+    minWidth: 0,
+    width: '100%',
+    boxSizing: 'border-box' as const,
     borderRadius: '10px',
     display: 'flex',
     flexDirection: 'column' as const,
@@ -789,6 +798,9 @@ const styles: Record<string, React.CSSProperties> = {
   calCellPad: {
     aspectRatio: '1',
     minHeight: '44px',
+    minWidth: 0,
+    width: '100%',
+    boxSizing: 'border-box' as const,
     borderRadius: '10px',
     display: 'flex',
     alignItems: 'center',
@@ -797,8 +809,25 @@ const styles: Record<string, React.CSSProperties> = {
     border: '1px dashed rgba(0,0,0,0.04)',
   },
   calCellDay: { fontSize: '14px', fontWeight: 800, lineHeight: 1 },
-  calCellPct: { fontSize: '10px', fontWeight: 700, lineHeight: 1.1, opacity: 0.95 },
-  calCellPctDim: { fontSize: '10px', fontWeight: 600, opacity: 0.55 },
+  calCellPct: {
+    fontSize: '10px',
+    fontWeight: 700,
+    lineHeight: 1.1,
+    opacity: 0.95,
+    maxWidth: '100%',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap' as const,
+  },
+  calCellPctDim: {
+    fontSize: '10px',
+    fontWeight: 600,
+    opacity: 0.55,
+    maxWidth: '100%',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap' as const,
+  },
 };
 
 export default ProfitChart;
