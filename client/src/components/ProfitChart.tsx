@@ -117,11 +117,6 @@ const ProfitChart: React.FC = () => {
   );
 };
 
-function formatProfitYuan(n: number): string {
-  const sign = n >= 0 ? '+' : '';
-  return `${sign}¥${Math.abs(n).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-}
-
 /** A 股习惯：盈红 #ff4d4f，亏绿 #52c41a；亏损带负号 */
 function pnlTextAndColor(n: number): { text: string; color: string } {
   const abs = Math.abs(n).toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
