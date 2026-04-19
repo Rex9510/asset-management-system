@@ -10,6 +10,11 @@
 #
 # 注意：GitHub 托管 runner 的出口 IP 不固定。若安全组只放行固定 IP，
 # 请改用「在服务器上装 self-hosted runner」，或放行 SSH、或用 Tailscale 等。
+#
+# 若部署日志里 git fetch 报 GnuTLS / TLS connection terminated：多为国内访问
+# github.com HTTPS 不稳定。请在服务器把 remote 改成 SSH，并在本仓库
+# Settings → Deploy keys 添加「只读」公钥（不要用个人账号私钥）：
+#   cd "$APP_DIR" && git remote set-url origin git@github.com:Rex9510/asset-management-system.git
 
 name: Deploy production
 
@@ -32,7 +37,6 @@ jobs:
           host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_SSH_KEY }}
-          script_stop: true
           command_timeout: 20m
           script: |
             set -euo pipefail
