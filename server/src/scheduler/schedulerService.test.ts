@@ -17,6 +17,10 @@ import * as marketDataService from '../market/marketDataService';
 import { clearSnapshotCache } from './changeDetector';
 import * as tradingDayGuard from './tradingDayGuard';
 
+jest.mock('./tradingCalendarSyncService', () => ({
+  syncTradingCalendarFromMarket: jest.fn().mockResolvedValue({ tradeDayCount: 0 }),
+}));
+
 jest.mock('../analysis/analysisService');
 jest.mock('../market/marketDataService');
 jest.mock('../indicators/indicatorService', () => ({

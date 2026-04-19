@@ -3,10 +3,14 @@
  *
  * 判断指定日期是否为A股交易日，以及是否在交易时间内。
  * 所有收盘后定时任务和盘中定时分析在执行前必须先通过此守卫。
+ *
+ * 策略在 holidays.json 基础上叠加「行情侧」交易日：见 trading_calendar_sdk（上证日K同步）。
  */
 
 import * as path from 'path';
 import * as fs from 'fs';
+import type Database from 'better-sqlite3';
+import { getDatabase } from '../db/connection';
 
 // --- Types ---
 
@@ -39,6 +43,48 @@ export function _resetHolidayCache(): void {
   holidayData = null;
 }
 
+/** 行情日历缓存行数达到此阈值时，才在「历史区间内缺 K」的工作日上判定为休市（避免数据不完整误判） */
+const SDK_NEGATIVE_INFERENCE_MIN_ROWS = 120;
+
+let sdkOverlayLoaded = false;
+let sdkTradingDates = new Set<string>();
+let sdkRangeMin: string | null = null;
+let sdkRangeMax: string | null = null;
+
+function ensureSdkOverlay(): void {
+  if (sdkOverlayLoaded) return;
+  reloadTradingCalendarSdkFromDb();
+}
+
+/** 从 DB 重载行情侧交易日集合（同步任务或测试后调用） */
+export function reloadTradingCalendarSdkFromDb(db?: Database.Database): void {
+  sdkOverlayLoaded = true;
+  sdkTradingDates = new Set();
+  sdkRangeMin = null;
+  sdkRangeMax = null;
+  try {
+    const database = db ?? getDatabase();
+    const agg = database
+      .prepare('SELECT MIN(trade_date) as mn, MAX(trade_date) as mx, COUNT(*) as cnt FROM trading_calendar_sdk')
+      .get() as { mn: string | null; mx: string | null; cnt: number };
+    if (!agg.cnt) return;
+    const rows = database.prepare('SELECT trade_date FROM trading_calendar_sdk').all() as { trade_date: string }[];
+    for (const r of rows) sdkTradingDates.add(r.trade_date);
+    sdkRangeMin = agg.mn;
+    sdkRangeMax = agg.mx;
+  } catch {
+    // 表不存在或查询失败：保持空集，回退为仅节假日表逻辑
+  }
+}
+
+/** 测试用：下次 isTradingDay 重新读库 */
+export function _resetTradingCalendarSdkCacheForTests(): void {
+  sdkOverlayLoaded = false;
+  sdkTradingDates = new Set();
+  sdkRangeMin = null;
+  sdkRangeMax = null;
+}
+
 // --- Helper: format date as YYYY-MM-DD ---
 
 function pad2(n: number): string {
@@ -61,7 +107,9 @@ function formatDate(date: Date): string {
  * 1. 检查是否为调休补班日（周末但需上班）→ 返回 true
  * 2. 排除周六日
  * 3. 排除法定节假日（从 holidays.json 读取）
- * 4. 兜底：节假日表缺失时回退到仅判断周六日
+ * 4. 行情侧：trading_calendar_sdk 中有上证日 K 的日期 → true（已开市）
+ * 5. 历史补判：缓存足够完整时，区间内工作日且无 K → false（休市，多为节假日表未收录的休市）
+ * 6. 兜底：节假日表缺失时回退到仅判断周六日 + 行情叠加
  */
 /**
  * 日历日期 `YYYY-MM-DD` 是否为 A 股交易日（与 isTradingDay 相同节假日/补班表）。
@@ -73,10 +121,31 @@ export function isTradingDayIsoDate(isoDate: string): boolean {
 }
 
 export function isTradingDay(date: Date): boolean {
+  ensureSdkOverlay();
   const data = loadHolidayData();
   const dateStr = formatDate(date);
   const year = String(date.getFullYear());
   const dayOfWeek = date.getDay(); // 0=Sunday, 6=Saturday
+
+  const applySdkOverlay = (): boolean => {
+    if (sdkTradingDates.has(dateStr)) {
+      return true;
+    }
+    const todayStr = formatDate(new Date());
+    if (
+      sdkTradingDates.size >= SDK_NEGATIVE_INFERENCE_MIN_ROWS &&
+      sdkRangeMin &&
+      sdkRangeMax &&
+      dateStr >= sdkRangeMin &&
+      dateStr <= sdkRangeMax &&
+      dateStr < todayStr &&
+      dayOfWeek >= 1 &&
+      dayOfWeek <= 5
+    ) {
+      return false;
+    }
+    return true;
+  };
 
   if (data) {
     // Check makeup trading days first (weekends that are working days)
@@ -96,12 +165,14 @@ export function isTradingDay(date: Date): boolean {
       return false;
     }
 
-    // Weekday and not a holiday → trading day
-    return true;
+    return applySdkOverlay();
   }
 
-  // Fallback: no holiday data, weekend-only check
-  return dayOfWeek !== 0 && dayOfWeek !== 6;
+  // Fallback: no holiday data, weekend-only check + 行情叠加
+  if (dayOfWeek === 0 || dayOfWeek === 6) {
+    return false;
+  }
+  return applySdkOverlay();
 }
 
 /**

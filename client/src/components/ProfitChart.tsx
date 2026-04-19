@@ -217,17 +217,11 @@ function monthFloatingPnlChange(points: ProfitCurvePoint[], viewYear: number, vi
   return Math.round((lastIn.totalProfit - inMonth[0].totalProfit) * 100) / 100;
 }
 
-/** 日历格内涨跌金额（元）紧凑展示，如 +¥2.0k、-¥439 */
-function formatDeltaCompactYuan(n: number): string {
+/** 日历格内涨跌（元）：无 ¥、无千分位逗号，两位小数，尽量缩短字符串以便单行完整显示 */
+function formatDayCellDeltaYuan(n: number): string {
   const sign = n >= 0 ? '+' : '-';
-  const abs = Math.abs(n);
-  if (abs >= 10000) {
-    return `${sign}¥${(abs / 10000).toFixed(1)}万`;
-  }
-  if (abs >= 1000) {
-    return `${sign}¥${(abs / 1000).toFixed(1)}k`;
-  }
-  return `${sign}¥${Math.round(abs)}`;
+  const body = Math.abs(n).toFixed(2);
+  return `${sign}${body}`;
 }
 
 function cellVisual(
@@ -550,7 +544,7 @@ const CalendarArea: React.FC<{
             >
               <span style={styles.calCellDay}>{cell.day}</span>
               {pt && pt.dayProfitDelta != null ? (
-                <span style={styles.calCellPct}>{formatDeltaCompactYuan(pt.dayProfitDelta)}</span>
+                <span style={styles.calCellPct}>{formatDayCellDeltaYuan(pt.dayProfitDelta)}</span>
               ) : pt ? (
                 <span style={styles.calCellPctDim}>—</span>
               ) : (
@@ -711,22 +705,19 @@ const styles: Record<string, React.CSSProperties> = {
     justifyContent: 'center',
   },
   dayDetailRow: {
-    display: 'flex',
-    flexDirection: 'row' as const,
+    display: 'grid',
+    gridTemplateColumns: 'minmax(0, 1fr) auto',
+    gap: '8px 10px',
     alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: '10px',
     minWidth: 0,
   },
   dayDetailLabel: {
     color: '#8b8fa3',
     fontSize: '11px',
     fontWeight: 500,
-    flex: '1 1 auto',
     minWidth: 0,
-    overflow: 'hidden',
-    textOverflow: 'ellipsis',
-    whiteSpace: 'nowrap' as const,
+    lineHeight: 1.35,
+    whiteSpace: 'normal' as const,
   },
   dayDetailValue: {
     fontWeight: 700,
@@ -770,25 +761,27 @@ const styles: Record<string, React.CSSProperties> = {
   calGrid: {
     display: 'grid',
     gridTemplateColumns: 'repeat(7, 1fr)',
-    gap: '6px',
+    gap: '4px',
+    gridAutoRows: 'minmax(52px, auto)',
   },
   calCellBtn: {
-    aspectRatio: '1',
-    minHeight: '44px',
+    minHeight: '52px',
+    width: '100%',
+    minWidth: 0,
     borderRadius: '10px',
     display: 'flex',
     flexDirection: 'column' as const,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: '2px',
+    gap: '1px',
     cursor: 'pointer',
     font: 'inherit',
-    padding: '4px 2px',
+    padding: '3px 1px',
+    overflow: 'visible',
     transition: 'transform 0.12s ease, box-shadow 0.12s ease',
   },
   calCellPad: {
-    aspectRatio: '1',
-    minHeight: '44px',
+    minHeight: '52px',
     borderRadius: '10px',
     display: 'flex',
     alignItems: 'center',
@@ -796,8 +789,21 @@ const styles: Record<string, React.CSSProperties> = {
     background: 'transparent',
     border: '1px dashed rgba(0,0,0,0.04)',
   },
-  calCellDay: { fontSize: '14px', fontWeight: 800, lineHeight: 1 },
-  calCellPct: { fontSize: '10px', fontWeight: 700, lineHeight: 1.1, opacity: 0.95 },
+  calCellDay: { fontSize: '11px', fontWeight: 800, lineHeight: 1 },
+  calCellPct: {
+    fontSize: '8px',
+    fontWeight: 700,
+    lineHeight: 1.2,
+    opacity: 0.95,
+    textAlign: 'center' as const,
+    whiteSpace: 'nowrap' as const,
+    width: '100%',
+    padding: '0 1px',
+    boxSizing: 'border-box' as const,
+    overflow: 'visible',
+    letterSpacing: '-0.02em',
+    fontVariantNumeric: 'tabular-nums' as const,
+  },
   calCellPctDim: { fontSize: '10px', fontWeight: 600, opacity: 0.55 },
 };
 

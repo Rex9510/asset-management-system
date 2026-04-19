@@ -202,3 +202,12 @@ CREATE TABLE IF NOT EXISTS user_settings (
 
 -- users表新增last_login_at字段（用于24h未登录用户过滤）
 -- SQLite不支持IF NOT EXISTS for ALTER TABLE，需要在代码层面处理
+
+-- 行情侧交易日缓存：上证指数日 K 有数据的日期视为已开市（与 holidays.json 叠加使用）
+CREATE TABLE IF NOT EXISTS trading_calendar_sdk (
+    trade_date TEXT PRIMARY KEY,
+    source TEXT NOT NULL DEFAULT 'tencent_kline_sh000001',
+    synced_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_trading_calendar_sdk_synced ON trading_calendar_sdk(synced_at);

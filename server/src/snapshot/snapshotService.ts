@@ -382,6 +382,8 @@ function takeHistoricalSnapshot(
   positions: HoldingRow[],
   db: Database.Database
 ): number {
+  if (!isTradingDayIsoDate(date)) return 0;
+
   let count = 0;
   const insertStmt = db.prepare(
     `INSERT OR IGNORE INTO portfolio_snapshots

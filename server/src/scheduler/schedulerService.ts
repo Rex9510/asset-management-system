@@ -21,6 +21,7 @@ import { trackDailyPicks } from '../dailypick/dailyPickTrackingService';
 import { checkAllUsersConcentrationRisk } from '../concentration/concentrationService';
 import { takeAllUsersSnapshot } from '../snapshot/snapshotService';
 import { generateReviews } from '../oplog/operationLogService';
+import { syncTradingCalendarFromMarket } from './tradingCalendarSyncService';
 
 // --- Types ---
 
@@ -73,6 +74,9 @@ const pendingVolatilityTimers: ReturnType<typeof setTimeout>[] = [];
 
 // Track post-close task timers
 const postCloseTimers: ReturnType<typeof setTimeout>[] = [];
+
+/** 每日同步行情交易日历（与收盘任务独立，休市日也会调度） */
+let tradingCalendarDailyTimer: ReturnType<typeof setTimeout> | null = null;
 
 // 10-minute timeout for each post-close task
 const TASK_TIMEOUT_MS = 10 * 60 * 1000;
@@ -137,6 +141,35 @@ async function refreshAllPositionPrices(db: Database.Database): Promise<void> {
 
 // --- Start / Stop ---
 
+function msUntilNextLocalWallClock(hour: number, minute: number): number {
+  const now = new Date();
+  const target = new Date(now);
+  target.setHours(hour, minute, 0, 0);
+  if (now >= target) {
+    target.setDate(target.getDate() + 1);
+  }
+  return target.getTime() - now.getTime();
+}
+
+/**
+ * 每个自然日 08:10（服务器本地时区）拉取上证日 K，刷新 trading_calendar_sdk。
+ * 休市日也会执行，以便长假后首日开盘前日历已更新。
+ */
+function scheduleDailyTradingCalendarSync(): void {
+  const runAndReschedule = (): void => {
+    void syncTradingCalendarFromMarket()
+      .then(() => console.log('[交易日历] 定时同步完成'))
+      .catch((err) => console.error('[交易日历] 定时同步失败', err))
+      .finally(() => {
+        const ms = msUntilNextLocalWallClock(8, 10);
+        tradingCalendarDailyTimer = setTimeout(runAndReschedule, ms);
+      });
+  };
+  const firstMs = msUntilNextLocalWallClock(8, 10);
+  console.log(`[交易日历] 已调度每日同步，下次约 ${new Date(Date.now() + firstMs).toLocaleString()}`);
+  tradingCalendarDailyTimer = setTimeout(runAndReschedule, firstMs);
+}
+
 export function startScheduler(): void {
   if (fullAnalysisInterval) return; // Already running
 
@@ -151,6 +184,8 @@ export function startScheduler(): void {
 
   // Schedule all post-close tasks (15:30-17:30 staggered)
   schedulePostCloseTasks();
+
+  scheduleDailyTradingCalendarSync();
 }
 
 export function stopScheduler(): void {
@@ -170,6 +205,10 @@ export function stopScheduler(): void {
     clearTimeout(timer);
   }
   postCloseTimers.length = 0;
+  if (tradingCalendarDailyTimer) {
+    clearTimeout(tradingCalendarDailyTimer);
+    tradingCalendarDailyTimer = null;
+  }
 }
 
 /**

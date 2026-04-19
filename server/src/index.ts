@@ -9,7 +9,8 @@ import { runDailyPickJob } from './dailypick/dailyPickService';
 import { ensureAllUserStocksHistory, ensureSpecialStocksHistory } from './market/historyService';
 import { isTradingDay } from './scheduler/tradingDayGuard';
 import { fixBrokenMonitorCodes, updateAllMonitors } from './cycle/cycleDetectorService';
-import { backfillMissingSnapshots } from './snapshot/snapshotService';
+import { backfillMissingSnapshots, deleteSnapshotsOnNonTradingDays } from './snapshot/snapshotService';
+import { syncTradingCalendarFromMarket } from './scheduler/tradingCalendarSyncService';
 import { refreshIndexQuotes } from './sentiment/sentimentService';
 
 const PORT = process.env.PORT || 3000;
@@ -60,11 +61,21 @@ app.listen(PORT, () => {
     console.log('User stocks history check complete');
     // 确保ETF和周期监控标的也有历史数据
     return ensureSpecialStocksHistory();
-  }).then(() => {
+  }).then(async () => {
     console.log('Special stocks (ETF + cycle monitors) history check complete');
     // 历史数据就绪后，强制刷新所有周期监控（用最新数据重新检测）
     updateAllMonitors();
     console.log('Cycle monitors refreshed with latest history data');
+    try {
+      await syncTradingCalendarFromMarket();
+    } catch (err) {
+      console.error('[交易日历] 启动同步失败（将依赖 holidays.json 与本地缓存）:', err);
+    }
+    // 清理曾误写入「休市日」的快照（节假日表更新或旧环境仅按周末判断时产生）
+    const removedNonTrading = deleteSnapshotsOnNonTradingDays();
+    if (removedNonTrading > 0) {
+      console.log(`已清理非交易日快照：${removedNonTrading} 条`);
+    }
     // 自动补录缺失的持仓快照（服务器停机期间的交易日）
     console.log('检查并补录缺失的持仓快照...');
     backfillMissingSnapshots();

@@ -1,6 +1,10 @@
 import * as fc from 'fast-check';
 import { startScheduler, stopScheduler, registerSSEClient, unregisterSSEClient } from './schedulerService';
 
+jest.mock('./tradingCalendarSyncService', () => ({
+  syncTradingCalendarFromMarket: jest.fn().mockResolvedValue({ tradeDayCount: 0 }),
+}));
+
 describe('属性测试：定时任务调度启停', () => {
   afterEach(() => {
     stopScheduler();

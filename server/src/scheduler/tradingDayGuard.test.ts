@@ -1,7 +1,14 @@
-import { isTradingDay, isTradingDayIsoDate, isTradingHours, _resetHolidayCache } from './tradingDayGuard';
+import {
+  isTradingDay,
+  isTradingDayIsoDate,
+  isTradingHours,
+  _resetHolidayCache,
+  _resetTradingCalendarSdkCacheForTests,
+} from './tradingDayGuard';
 
 beforeEach(() => {
   _resetHolidayCache();
+  _resetTradingCalendarSdkCacheForTests();
 });
 
 describe('isTradingDay', () => {

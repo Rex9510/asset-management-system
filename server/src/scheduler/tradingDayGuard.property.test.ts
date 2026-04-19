@@ -3,10 +3,11 @@
  * Task 1.4
  */
 import * as fc from 'fast-check';
-import { isTradingDay, isTradingHours, _resetHolidayCache } from './tradingDayGuard';
+import { isTradingDay, isTradingHours, _resetHolidayCache, _resetTradingCalendarSdkCacheForTests } from './tradingDayGuard';
 
 beforeEach(() => {
   _resetHolidayCache();
+  _resetTradingCalendarSdkCacheForTests();
 });
 
 // Feature: ai-investment-assistant-phase2, Property: 交易日守卫 — 周六日判断

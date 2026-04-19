@@ -200,6 +200,19 @@ describe('deleteSnapshotsOnNonTradingDays', () => {
       .all() as { snapshot_date: string }[];
     expect(dates.map((r) => r.snapshot_date)).toEqual(['2024-06-03']);
   });
+
+  it('removes statutory holiday weekday rows (e.g. 2026 Qingming 2026-04-06)', () => {
+    insertSnapshot(testDb, 1, '2026-04-03', '600000', '浦发银行', 100, 8, 10, '沪市主板');
+    insertSnapshot(testDb, 1, '2026-04-06', '600000', '浦发银行', 100, 8, 10, '沪市主板');
+    const n = deleteSnapshotsOnNonTradingDays(testDb);
+    expect(n).toBeGreaterThanOrEqual(1);
+    const dates = testDb
+      .prepare(
+        'SELECT DISTINCT snapshot_date FROM portfolio_snapshots WHERE user_id = 1 ORDER BY snapshot_date'
+      )
+      .all() as { snapshot_date: string }[];
+    expect(dates.map((r) => r.snapshot_date)).toEqual(['2024-06-03', '2026-04-03']);
+  });
 });
 
 describe('deleteSnapshotsViolatingBuyDate', () => {

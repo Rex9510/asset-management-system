@@ -2,6 +2,7 @@
  * 按建仓日(buy_date)修正快照数据并补录缺口、刷新当日快照。
  *
  * 步骤：
+ * 0. 从行情拉取上证日 K，同步 trading_calendar_sdk（与运行时 isTradingDay 一致）
  * 1. 删除 snapshot_date < buy_date 的快照行（旧逻辑或填错建仓日前的脏数据）
  * 2. 删除「快照日期本身非交易日」的行（例如曾在周末执行过 takeSnapshot）
  * 3. backfillMissingSnapshots：对缺失交易日按当前持仓+buy_date 补历史收盘价
@@ -23,10 +24,17 @@ import {
   deleteSnapshotsOnNonTradingDays,
   takeAllUsersSnapshot,
 } from '../snapshot/snapshotService';
+import { syncTradingCalendarFromMarket } from '../scheduler/tradingCalendarSyncService';
 
-function main(): void {
+async function main(): Promise<void> {
   initializeDatabase();
   const db = getDatabase();
+
+  try {
+    await syncTradingCalendarFromMarket(db);
+  } catch (err) {
+    console.error('[交易日历] 同步失败，将继续使用已有缓存/holidays.json：', err);
+  }
 
   const removedBuy = deleteSnapshotsViolatingBuyDate(db);
   console.log(`已删除违反建仓日的快照行：${removedBuy} 条`);
@@ -48,10 +56,8 @@ function main(): void {
   closeDatabase();
 }
 
-try {
-  main();
-} catch (err) {
+main().catch((err) => {
   console.error('执行失败:', err);
   closeDatabase();
   process.exit(1);
-}
+});
