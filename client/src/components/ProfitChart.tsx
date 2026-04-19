@@ -217,7 +217,7 @@ function monthFloatingPnlChange(points: ProfitCurvePoint[], viewYear: number, vi
   return Math.round((lastIn.totalProfit - inMonth[0].totalProfit) * 100) / 100;
 }
 
-/** 日历格内涨跌（元）：无 ¥、无千分位逗号，两位小数，尽量缩短字符串以便单行完整显示 */
+/** 日历格内涨跌（元）：无 ¥、无千分位逗号，两位小数；窄格内由样式允许换行 */
 function formatDayCellDeltaYuan(n: number): string {
   const sign = n >= 0 ? '+' : '-';
   const body = Math.abs(n).toFixed(2);
@@ -766,29 +766,29 @@ const styles: Record<string, React.CSSProperties> = {
     display: 'grid',
     gridTemplateColumns: 'repeat(7, minmax(0, 1fr))',
     gap: '4px',
-    gridAutoRows: 'minmax(52px, auto)',
+    gridAutoRows: 'minmax(56px, auto)',
     width: '100%',
     minWidth: 0,
   },
   calCellBtn: {
-    minHeight: '52px',
+    minHeight: '56px',
     minWidth: 0,
     width: '100%',
     boxSizing: 'border-box' as const,
     borderRadius: '10px',
     display: 'flex',
     flexDirection: 'column' as const,
-    alignItems: 'center',
+    alignItems: 'stretch',
     justifyContent: 'center',
-    gap: '1px',
+    gap: '2px',
     cursor: 'pointer',
     font: 'inherit',
-    padding: '3px 1px',
-    overflow: 'visible',
+    padding: '4px 3px',
+    overflow: 'hidden',
     transition: 'transform 0.12s ease, box-shadow 0.12s ease',
   },
   calCellPad: {
-    minHeight: '52px',
+    minHeight: '56px',
     minWidth: 0,
     width: '100%',
     boxSizing: 'border-box' as const,
@@ -799,22 +799,23 @@ const styles: Record<string, React.CSSProperties> = {
     background: 'transparent',
     border: '1px dashed rgba(0,0,0,0.04)',
   },
-  calCellDay: { fontSize: '11px', fontWeight: 800, lineHeight: 1 },
+  calCellDay: { fontSize: '11px', fontWeight: 800, lineHeight: 1.05, flexShrink: 0, textAlign: 'center' as const },
   calCellPct: {
     fontSize: '8px',
     fontWeight: 700,
     lineHeight: 1.2,
     opacity: 0.95,
     textAlign: 'center' as const,
-    whiteSpace: 'nowrap' as const,
+    whiteSpace: 'normal' as const,
+    overflowWrap: 'anywhere' as const,
+    wordBreak: 'break-word' as const,
     width: '100%',
     maxWidth: '100%',
     minWidth: 0,
     padding: '0 1px',
     boxSizing: 'border-box' as const,
-    overflow: 'visible',
-    letterSpacing: '-0.02em',
-    fontVariantNumeric: 'tabular-nums' as const,
+    overflow: 'hidden',
+    letterSpacing: '0',
   },
   calCellPctDim: {
     fontSize: '10px',
@@ -822,8 +823,10 @@ const styles: Record<string, React.CSSProperties> = {
     opacity: 0.55,
     maxWidth: '100%',
     minWidth: 0,
-    overflow: 'visible',
-    whiteSpace: 'nowrap' as const,
+    overflow: 'hidden',
+    textAlign: 'center' as const,
+    whiteSpace: 'normal' as const,
+    overflowWrap: 'anywhere' as const,
   },
 };
 
