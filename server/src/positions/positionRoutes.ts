@@ -6,6 +6,7 @@ import {
   updatePosition,
   deletePosition,
   getTodayPnl,
+  searchStockCandidates,
   PositionType,
 } from './positionService';
 
@@ -41,12 +42,23 @@ router.get('/', (req: Request, res: Response, next: NextFunction) => {
   }
 });
 
+// GET /api/positions/search?keyword=...
+router.get('/search', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const keyword = typeof req.query.keyword === 'string' ? req.query.keyword : '';
+    const candidates = await searchStockCandidates(keyword, undefined, 10);
+    res.json({ candidates });
+  } catch (err) {
+    next(err);
+  }
+});
+
 // POST /api/positions - Create a new position
-router.post('/', (req: Request, res: Response, next: NextFunction) => {
+router.post('/', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const userId = req.user!.id;
     const { stockCode, stockName, costPrice, shares, buyDate, positionType } = req.body;
-    const position = createPosition(userId, { stockCode, stockName, costPrice, shares, buyDate, positionType });
+    const position = await createPosition(userId, { stockCode, stockName, costPrice, shares, buyDate, positionType });
     res.status(201).json({ position });
   } catch (err) {
     next(err);
@@ -62,8 +74,8 @@ router.put('/:id', (req: Request, res: Response, next: NextFunction) => {
       res.status(400).json({ error: { code: 'BAD_REQUEST', message: '无效的持仓ID' } });
       return;
     }
-    const { costPrice, shares } = req.body;
-    const position = updatePosition(id, userId, { costPrice, shares });
+    const { costPrice, shares, buyDate } = req.body;
+    const position = updatePosition(id, userId, { costPrice, shares, buyDate });
     res.json({ position });
   } catch (err) {
     next(err);

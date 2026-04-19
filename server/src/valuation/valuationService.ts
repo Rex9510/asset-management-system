@@ -1,12 +1,12 @@
 /**
  * 估值分位服务
- * 
+ *
  * 功能：
- * 1. 多源降级获取PE/PB：腾讯 qt.gtimg.cn → 新浪 → 数据库缓存 → AI估算
- * 2. 基于腾讯历史K线反推历史PE序列：当前PE × 当前价 / 历史价
- * 3. 计算分位数 = rank(当前PE) / total
+ * 1. 多源降级获取当前 PE/PB：腾讯 qt.gtimg.cn → 新浪 → 数据库缓存 → AI估算
+ * 2. PE 分位（优先）：东财财报 CPD 拆解单季 EPS → 滚动 TTM，按公告日匹配日 K 得到真实历史 PE 再分位
+ * 3. PE/PB 分位（兜底）：历史价缩放近似（EPS/BPS 不变的简化假设）
  * 4. 区间映射：0-30%→low, 30-70%→fair, 70-100%→high
- * 5. 数据年限标注：不足10年时标注实际年限
+ * 5. 数据年限标注：不足10年时标注实际年限（K 线跨度）
  * 6. 写入 valuation_cache 表，每交易日收盘后更新
  * 7. 批量初始化：队列逐只处理，500ms 间隔
  */
@@ -14,6 +14,7 @@ import axios from 'axios';
 import Database from 'better-sqlite3';
 import { getDatabase } from '../db/connection';
 import { getMarketPrefix } from '../market/marketDataService';
+import { tryFundamentalPePbPercentiles } from './fundamentalPeService';
 
 // --- Types ---
 
@@ -336,24 +337,42 @@ export async function computeValuation(
   // 3. 计算数据年限
   const dataYears = calculateDataYears(historicalPrices);
 
-  // 4. 计算PE分位数
+  // 4–5. PE/PB 分位：优先财报 TTM + 公告日；否则价格缩放近似
   let pePercentile = 50;
   let pbPercentile = 50;
 
-  if (pePbData.pe !== null && pePbData.price > 0 && historicalPrices.length > 0) {
+  const fund = await tryFundamentalPePbPercentiles(
+    stockCode,
+    historicalPrices,
+    pePbData.price > 0 ? pePbData.price : null,
+    pePbData.pe,
+    pePbData.pb,
+    calculatePercentile
+  );
+
+  if (fund != null) {
+    pePercentile = fund.pePercentile;
+    if (fund.pbFromFundamental && fund.pbPercentile != null) {
+      pbPercentile = fund.pbPercentile;
+    } else if (pePbData.pb !== null && pePbData.price > 0 && historicalPrices.length > 0) {
+      const historicalPbSeries = historicalPrices
+        .filter(p => p.closePrice > 0)
+        .map(p => pePbData.pb! * p.closePrice / pePbData.price);
+      pbPercentile = calculatePercentile(pePbData.pb, historicalPbSeries);
+    }
+  } else if (pePbData.pe !== null && pePbData.price > 0 && historicalPrices.length > 0) {
     const historicalPeSeries = computeHistoricalPeSeries(
       pePbData.pe, pePbData.price, historicalPrices
     );
     const peValues = historicalPeSeries.map(h => h.pe);
     pePercentile = calculatePercentile(pePbData.pe, peValues);
-  }
 
-  // 5. 计算PB分位数（同样反推逻辑）
-  if (pePbData.pb !== null && pePbData.price > 0 && historicalPrices.length > 0) {
-    const historicalPbSeries = historicalPrices
-      .filter(p => p.closePrice > 0)
-      .map(p => pePbData.pb! * p.closePrice / pePbData.price);
-    pbPercentile = calculatePercentile(pePbData.pb, historicalPbSeries);
+    if (pePbData.pb !== null && pePbData.price > 0) {
+      const historicalPbSeries = historicalPrices
+        .filter(p => p.closePrice > 0)
+        .map(p => pePbData.pb! * p.closePrice / pePbData.price);
+      pbPercentile = calculatePercentile(pePbData.pb, historicalPbSeries);
+    }
   }
 
   // 6. 映射区间
@@ -432,6 +451,16 @@ export function getValuationFromDb(stockCode: string, db?: Database.Database): V
     source: row.source as ValuationSource,
     updatedAt: row.updated_at,
   };
+}
+
+/**
+ * 清空 `valuation_cache` 全表，使估值接口下次按最新逻辑重算并写回缓存。
+ * @returns 删除的行数
+ */
+export function clearValuationCache(db?: Database.Database): number {
+  const database = db || getDatabase();
+  const result = database.prepare('DELETE FROM valuation_cache').run();
+  return result.changes;
 }
 
 // --- Batch processing ---

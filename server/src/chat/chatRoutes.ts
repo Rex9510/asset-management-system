@@ -1,5 +1,6 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { authMiddleware } from '../middleware/authMiddleware';
+import { chatSendUserLimiter } from '../middleware/rateLimits';
 import { sendMessage, getChatHistory, detectSellIntent } from './chatService';
 import { Errors } from '../errors/AppError';
 
@@ -9,7 +10,7 @@ const router = Router();
 router.use(authMiddleware);
 
 // POST /send - Send a message and get AI response
-router.post('/send', async (req: Request, res: Response, next: NextFunction) => {
+router.post('/send', chatSendUserLimiter, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const userId = req.user!.id;
     const { content, stockCode } = req.body;

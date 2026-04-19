@@ -144,7 +144,10 @@ describe('API Endpoint Mapping Verification', () => {
     await authApi.registerUser('u', 'p', true);
     expect(mockAdapter.mock.calls[0][0].url).toContain('/auth/register');
     expect(mockAdapter.mock.calls[0][0].method).toBe('post');
-    expect(mockAdapter.mock.calls[0][0].data).toHaveProperty('agreedTerms', true);
+    const registerBody = mockAdapter.mock.calls[0][0].data;
+    const parsed =
+      typeof registerBody === 'string' ? JSON.parse(registerBody) : registerBody;
+    expect(parsed).toHaveProperty('agreedTerms', true);
   });
 
   it('auth login calls POST /api/auth/login', async () => {

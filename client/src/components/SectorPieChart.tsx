@@ -1,5 +1,7 @@
-import React, { useEffect, useState, useRef, useCallback } from 'react';
+import React, { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { getChartData, SectorDistItem } from '../api/snapshot';
+import { getPositions, Position } from '../api/positions';
+import { useMarketSSE } from '../hooks/useMarketSSE';
 
 const SECTOR_COLORS = [
   '#667eea', '#764ba2', '#f093fb', '#4facfe', '#43e97b',
@@ -8,10 +10,38 @@ const SECTOR_COLORS = [
 
 const SectorPieChart: React.FC = () => {
   const [data, setData] = useState<SectorDistItem[]>([]);
+  const [positions, setPositions] = useState<Position[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
   const [visible, setVisible] = useState(false);
   const containerRef = useRef<HTMLDivElement>(null);
+
+  const holdings = useMemo(() => positions.filter((p) => p.positionType === 'holding'), [positions]);
+  const stockCodes = useMemo(() => holdings.map((p) => p.stockCode), [holdings]);
+  const { quotes, refreshQuotes } = useMarketSSE(stockCodes);
+
+  const liveTotalValue = useMemo(() => {
+    if (!holdings.length) return null;
+    let total = 0;
+    for (const p of holdings) {
+      const quote = quotes.get(p.stockCode);
+      const price = quote?.price ?? p.currentPrice ?? 0;
+      const shares = p.shares ?? 0;
+      total += price * shares;
+    }
+    return total > 0 ? total : null;
+  }, [holdings, quotes]);
+
+  const scaledItems = useMemo(() => {
+    if (!data.length || liveTotalValue == null) return data;
+    const snapSum = data.reduce((s, i) => s + i.value, 0);
+    if (snapSum <= 0) return data;
+    const factor = liveTotalValue / snapSum;
+    return data.map((i) => ({
+      ...i,
+      value: Math.round(i.value * factor * 100) / 100,
+    }));
+  }, [data, liveTotalValue]);
 
   useEffect(() => {
     const el = containerRef.current;
@@ -27,13 +57,35 @@ const SectorPieChart: React.FC = () => {
   const fetchData = useCallback(() => {
     setLoading(true);
     setError(false);
-    getChartData('30d')
-      .then((res) => { setData(res.sectorDistribution); setLoading(false); })
-      .catch(() => { setError(true); setLoading(false); });
+    Promise.all([getChartData('30d'), getPositions('holding').catch(() => [])])
+      .then(([chart, pos]) => {
+        setData(chart.sectorDistribution);
+        setPositions(pos);
+        setLoading(false);
+      })
+      .catch(() => {
+        setError(true);
+        setLoading(false);
+      });
   }, []);
 
   useEffect(() => {
     if (visible) fetchData();
+  }, [visible, fetchData]);
+
+  useEffect(() => {
+    if (!visible || stockCodes.length === 0) return;
+    void refreshQuotes(stockCodes);
+  }, [visible, stockCodes, refreshQuotes]);
+
+  useEffect(() => {
+    const onTab = (e: Event) => {
+      const tab = (e as CustomEvent<{ tab: string }>).detail?.tab;
+      if (tab !== 'profile' || !visible) return;
+      fetchData();
+    };
+    window.addEventListener('tab-switch-refresh', onTab);
+    return () => window.removeEventListener('tab-switch-refresh', onTab);
   }, [visible, fetchData]);
 
   return (
@@ -50,7 +102,7 @@ const SectorPieChart: React.FC = () => {
           <div style={styles.emptyHint}>持仓快照将在每个交易日收盘后记录</div>
         </div>
       ) : (
-        <SectorBars items={data} />
+        <SectorBars items={scaledItems} />
       )}
     </div>
   );

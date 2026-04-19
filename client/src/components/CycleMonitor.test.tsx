@@ -2,12 +2,17 @@ import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import CycleMonitor from './CycleMonitor';
 import * as cycleApi from '../api/cycle';
+import * as positionsApi from '../api/positions';
 
 jest.mock('../api/cycle');
+jest.mock('../api/positions', () => ({
+  searchStockCandidates: jest.fn(),
+}));
 
 const mockGetMonitors = cycleApi.getCycleMonitors as jest.MockedFunction<typeof cycleApi.getCycleMonitors>;
 const mockAddMonitor = cycleApi.addCycleMonitor as jest.MockedFunction<typeof cycleApi.addCycleMonitor>;
 const mockDeleteMonitor = cycleApi.deleteCycleMonitor as jest.MockedFunction<typeof cycleApi.deleteCycleMonitor>;
+const mockSearch = positionsApi.searchStockCandidates as jest.MockedFunction<typeof positionsApi.searchStockCandidates>;
 
 const mockMonitors: cycleApi.CycleMonitorData[] = [
   {
@@ -17,7 +22,7 @@ const mockMonitors: cycleApi.CycleMonitorData[] = [
     cycleLength: '约6年',
     currentPhase: '高位区域',
     status: 'high',
-    description: '当前价格处于近3年85%分位，处于高位区域，已持续约3个月，注意回调风险',
+    description: '参考约6年历史区间。当前处于高位运行，已运行约3个月，注意回调风险',
     bottomSignals: [],
     updatedAt: '2024-01-15T16:40:00Z',
     currentMonths: 3,
@@ -32,8 +37,8 @@ const mockMonitors: cycleApi.CycleMonitorData[] = [
     cycleLength: '约3年',
     currentPhase: '底部区域',
     status: 'bottom',
-    description: '当前价格处于近3年12%分位，处于底部区域，已持续约6个月',
-    bottomSignals: ['价格处于近3年最低30%区间', 'RSI低于30超卖'],
+    description: '参考约4年历史区间。当前处于横盘末期，已横盘约6个月',
+    bottomSignals: ['价格处于近4年最低30%区间', 'RSI低于30超卖'],
     updatedAt: '2024-01-15T16:40:00Z',
     currentMonths: 6,
     cycleLengthMonths: 36,
@@ -107,8 +112,8 @@ describe('CycleMonitor', () => {
     await waitFor(() => {
       expect(screen.getByTestId('cycle-desc-1')).toBeInTheDocument();
     });
-    expect(screen.getByTestId('cycle-desc-1').textContent).toContain('高位区域');
-    expect(screen.getByTestId('cycle-desc-2').textContent).toContain('底部区域');
+    expect(screen.getByTestId('cycle-desc-1').textContent).toMatch(/高位/);
+    expect(screen.getByTestId('cycle-desc-2').textContent).toMatch(/底部|横盘末期/);
   });
 
   it('shows cycle length info', async () => {
@@ -131,19 +136,45 @@ describe('CycleMonitor', () => {
     expect(screen.getByTestId('cycle-stock-input')).toBeInTheDocument();
   });
 
-  it('calls addCycleMonitor on submit', async () => {
+  it('calls addCycleMonitor after selecting a candidate from search', async () => {
     mockGetMonitors.mockResolvedValue([]);
     mockAddMonitor.mockResolvedValue(mockMonitors[0]);
+    mockSearch.mockResolvedValue([{ stockCode: '600519', stockName: '贵州茅台' }]);
     render(<CycleMonitor />);
     await waitFor(() => {
       expect(screen.getByTestId('cycle-add-toggle')).toBeInTheDocument();
     });
     fireEvent.click(screen.getByTestId('cycle-add-toggle'));
-    fireEvent.change(screen.getByTestId('cycle-stock-input'), { target: { value: '600519' } });
+    fireEvent.change(screen.getByTestId('cycle-stock-input'), { target: { value: '茅台' } });
+    await waitFor(() => {
+      expect(mockSearch).toHaveBeenCalledWith('茅台');
+    });
+    await waitFor(() => {
+      expect(screen.getByRole('listbox')).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByText('贵州茅台'));
+    expect(screen.getByTestId('cycle-selected-hint')).toBeInTheDocument();
     fireEvent.click(screen.getByTestId('cycle-submit-btn'));
     await waitFor(() => {
-      expect(mockAddMonitor).toHaveBeenCalledWith('600519');
+      expect(mockAddMonitor).toHaveBeenCalledWith('600519', '贵州茅台');
     });
+  });
+
+  it('shows validation when submitting without selecting a candidate', async () => {
+    mockGetMonitors.mockResolvedValue([]);
+    mockSearch.mockResolvedValue([{ stockCode: '600000', stockName: '浦发银行' }]);
+    render(<CycleMonitor />);
+    await waitFor(() => {
+      expect(screen.getByTestId('cycle-add-toggle')).toBeInTheDocument();
+    });
+    fireEvent.click(screen.getByTestId('cycle-add-toggle'));
+    fireEvent.change(screen.getByTestId('cycle-stock-input'), { target: { value: '仅输入不点选' } });
+    await waitFor(() => {
+      expect(mockSearch).toHaveBeenCalled();
+    });
+    fireEvent.click(screen.getByTestId('cycle-submit-btn'));
+    expect(await screen.findByRole('alert')).toHaveTextContent('请从搜索结果中选择股票');
+    expect(mockAddMonitor).not.toHaveBeenCalled();
   });
 
   it('calls deleteCycleMonitor on delete button click', async () => {

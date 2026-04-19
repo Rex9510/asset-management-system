@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { getCycleMonitors, addCycleMonitor, deleteCycleMonitor, CycleMonitorData } from '../api/cycle';
+import { searchStockCandidates, type StockCandidate } from '../api/positions';
 
 const statusConfig: Record<string, { color: string; bg: string; label: string; emoji: string }> = {
   bottom: { color: '#2ed573', bg: 'rgba(46,213,115,0.1)', label: '底部区间', emoji: '🟢' },
@@ -12,7 +13,12 @@ const CycleMonitor: React.FC = () => {
   const [monitors, setMonitors] = useState<CycleMonitorData[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
-  const [stockInput, setStockInput] = useState('');
+  const [stockQuery, setStockQuery] = useState('');
+  const [selectedStock, setSelectedStock] = useState<StockCandidate | null>(null);
+  const [candidates, setCandidates] = useState<StockCandidate[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [showCandidateList, setShowCandidateList] = useState(false);
+  const [addStockError, setAddStockError] = useState('');
   const [adding, setAdding] = useState(false);
   const [showInput, setShowInput] = useState(false);
 
@@ -26,17 +32,86 @@ const CycleMonitor: React.FC = () => {
 
   useEffect(() => { fetchMonitors(); }, [fetchMonitors]);
 
+  useEffect(() => {
+    if (!showInput) return;
+    const query = stockQuery.trim();
+    if (!query) {
+      setCandidates([]);
+      setShowCandidateList(false);
+      setSearching(false);
+      return;
+    }
+    if (
+      selectedStock &&
+      query === `${selectedStock.stockName} (${selectedStock.stockCode})`
+    ) {
+      setCandidates([]);
+      setShowCandidateList(false);
+      setSearching(false);
+      return;
+    }
+
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      try {
+        setSearching(true);
+        const result = await searchStockCandidates(query);
+        if (cancelled) return;
+        setCandidates(result);
+        setShowCandidateList(true);
+      } catch {
+        if (cancelled) return;
+        setCandidates([]);
+      } finally {
+        if (!cancelled) setSearching(false);
+      }
+    }, 250);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [stockQuery, showInput, selectedStock]);
+
+  function handleSelectCandidate(candidate: StockCandidate): void {
+    setSelectedStock(candidate);
+    setStockQuery(`${candidate.stockName} (${candidate.stockCode})`);
+    setShowCandidateList(false);
+    setAddStockError('');
+  }
+
   const handleAdd = async () => {
-    const code = stockInput.trim();
-    if (!code || adding) return;
+    if (adding) return;
+    if (!selectedStock) {
+      const q = stockQuery.trim();
+      setAddStockError(q ? '请从搜索结果中选择股票' : '请输入股票代码或名称');
+      return;
+    }
+    setAddStockError('');
     setAdding(true);
     try {
-      await addCycleMonitor(code);
-      setStockInput('');
+      await addCycleMonitor(selectedStock.stockCode, selectedStock.stockName);
+      setStockQuery('');
+      setSelectedStock(null);
+      setCandidates([]);
+      setShowCandidateList(false);
       setShowInput(false);
       fetchMonitors();
     } catch { /* interceptor */ }
     finally { setAdding(false); }
+  };
+
+  const toggleShowInput = () => {
+    setShowInput((prev) => {
+      if (prev) {
+        setStockQuery('');
+        setSelectedStock(null);
+        setCandidates([]);
+        setShowCandidateList(false);
+        setAddStockError('');
+      }
+      return !prev;
+    });
   };
 
   const handleDelete = async (id: number) => {
@@ -56,8 +131,8 @@ const CycleMonitor: React.FC = () => {
           style={st.addLink}
           role="button"
           tabIndex={0}
-          onClick={() => setShowInput(!showInput)}
-          onKeyDown={(e) => { if (e.key === 'Enter') setShowInput(!showInput); }}
+          onClick={toggleShowInput}
+          onKeyDown={(e) => { if (e.key === 'Enter') toggleShowInput(); }}
           data-testid="cycle-add-toggle"
         >
           + 添加
@@ -66,21 +141,61 @@ const CycleMonitor: React.FC = () => {
 
       {showInput && (
         <div style={st.inputRow} data-testid="cycle-input-row">
-          <input
-            type="text"
-            value={stockInput}
-            onChange={(e) => setStockInput(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter') handleAdd(); }}
-            placeholder="输入股票代码或名称"
-            style={st.input}
-            data-testid="cycle-stock-input"
-            autoFocus
-          />
+          <div style={st.searchField}>
+            <input
+              type="text"
+              value={stockQuery}
+              onFocus={() => {
+                if (candidates.length > 0) setShowCandidateList(true);
+              }}
+              onChange={(e) => {
+                setStockQuery(e.target.value);
+                setSelectedStock(null);
+                setAddStockError('');
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') handleAdd();
+              }}
+              placeholder="输入股票代码或名称，如 600000 / 浦发银行"
+              style={st.input}
+              data-testid="cycle-stock-input"
+              autoFocus
+            />
+            {showCandidateList && (
+              <div style={st.candidateList} role="listbox" aria-label="股票搜索结果">
+                {searching ? (
+                  <div style={st.candidateItemMuted}>搜索中...</div>
+                ) : candidates.length > 0 ? (
+                  candidates.map((c) => (
+                    <button
+                      key={`${c.stockCode}-${c.stockName}`}
+                      type="button"
+                      style={st.candidateItem}
+                      onClick={() => handleSelectCandidate(c)}
+                    >
+                      <span style={st.candidateName}>{c.stockName}</span>
+                      <span style={st.candidateCode}>{c.stockCode}</span>
+                    </button>
+                  ))
+                ) : (
+                  <div style={st.candidateItemMuted}>未找到匹配标的</div>
+                )}
+              </div>
+            )}
+            {addStockError ? (
+              <div style={st.addStockError} role="alert">{addStockError}</div>
+            ) : null}
+            {selectedStock ? (
+              <div style={st.selectedHint} data-testid="cycle-selected-hint">
+                已选择：{selectedStock.stockName}（{selectedStock.stockCode}）
+              </div>
+            ) : null}
+          </div>
           <button
             type="button"
-            style={{ ...st.submitBtn, opacity: adding || !stockInput.trim() ? 0.5 : 1 }}
+            style={{ ...st.submitBtn, opacity: adding ? 0.6 : 1 }}
             onClick={handleAdd}
-            disabled={adding || !stockInput.trim()}
+            disabled={adding}
             data-testid="cycle-submit-btn"
           >
             {adding ? '...' : '添加'}
@@ -310,9 +425,16 @@ const st: Record<string, React.CSSProperties> = {
     gap: '8px',
     marginBottom: '8px',
     marginTop: '6px',
+    alignItems: 'flex-start',
+  },
+  searchField: {
+    flex: 1,
+    minWidth: 0,
+    position: 'relative' as const,
   },
   input: {
-    flex: 1,
+    width: '100%',
+    boxSizing: 'border-box' as const,
     height: '36px',
     padding: '0 12px',
     border: '1px solid #ddd',
@@ -320,6 +442,52 @@ const st: Record<string, React.CSSProperties> = {
     fontSize: '14px',
     color: '#333',
     outline: 'none',
+  },
+  candidateList: {
+    marginTop: '4px',
+    border: '1px solid #e0e3ea',
+    borderRadius: '8px',
+    background: '#fff',
+    maxHeight: '200px',
+    overflowY: 'auto',
+    boxShadow: '0 4px 12px rgba(0,0,0,0.08)',
+  },
+  candidateItem: {
+    width: '100%',
+    border: 'none',
+    background: '#fff',
+    textAlign: 'left' as const,
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: '8px 10px',
+    cursor: 'pointer',
+    borderBottom: '1px solid #f1f3f6',
+    minHeight: '40px',
+  },
+  candidateItemMuted: {
+    fontSize: '12px',
+    color: '#8b8fa3',
+    padding: '8px 10px',
+  },
+  candidateName: {
+    fontSize: '13px',
+    color: '#1a1a2e',
+    fontWeight: 600,
+  },
+  candidateCode: {
+    fontSize: '11px',
+    color: '#8b8fa3',
+  },
+  selectedHint: {
+    marginTop: '4px',
+    fontSize: '11px',
+    color: '#4a69bd',
+  },
+  addStockError: {
+    marginTop: '4px',
+    fontSize: '11px',
+    color: '#ff4d4f',
   },
   submitBtn: {
     height: '36px',

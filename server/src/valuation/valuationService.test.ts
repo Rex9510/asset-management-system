@@ -13,6 +13,7 @@ import {
   computeValuation,
   saveValuationToDb,
   getValuationFromDb,
+  clearValuationCache,
   getStocksForValuation,
   batchUpdateValuations,
   getValuation,
@@ -107,12 +108,20 @@ function mockSinaFailure() {
   mockedAxios.get.mockRejectedValueOnce(new Error('Sina error'));
 }
 
+/** 东财 CPD 无数据，迫使 PE 分位走价格缩放兜底（测试稳定、不依赖外网） */
+function mockEastMoneyCpdEmpty() {
+  mockedAxios.get.mockResolvedValueOnce({
+    data: { success: true, result: { pages: 1, data: [] } },
+  });
+}
+
 describe('valuationService', () => {
   let db: Database.Database;
 
   beforeEach(() => {
     db = createTestDb();
     jest.clearAllMocks();
+    mockedAxios.get.mockReset();
   });
 
   afterEach(() => {
@@ -358,6 +367,28 @@ describe('valuationService', () => {
     });
   });
 
+  describe('clearValuationCache', () => {
+    it('removes all valuation cache rows', () => {
+      const data = {
+        stockCode: '600519',
+        peValue: 25.5,
+        pbValue: 8.2,
+        pePercentile: 45.5,
+        pbPercentile: 60.2,
+        peZone: 'fair' as const,
+        pbZone: 'fair' as const,
+        dataYears: 10,
+        source: 'tencent' as const,
+        updatedAt: new Date().toISOString(),
+      };
+      saveValuationToDb(data, db);
+      expect(getValuationFromDb('600519', db)).not.toBeNull();
+      const n = clearValuationCache(db);
+      expect(n).toBeGreaterThanOrEqual(1);
+      expect(getValuationFromDb('600519', db)).toBeNull();
+    });
+  });
+
   describe('getStocksForValuation', () => {
     it('should return distinct stock codes from positions', () => {
       const userId = seedUser(db);
@@ -379,6 +410,7 @@ describe('valuationService', () => {
     it('should compute valuation with historical data', async () => {
       seedHistoricalPrices(db, '600519', 2500, 2015); // ~7 years of data
       mockTencentPePbSuccess(25.5, 8.2, 1800);
+      mockEastMoneyCpdEmpty();
 
       const result = await computeValuation('600519', db);
       expect(result.stockCode).toBe('600519');
@@ -413,7 +445,9 @@ describe('valuationService', () => {
 
       // Mock Tencent for both stocks
       mockTencentPePbSuccess(25.5, 8.2, 1800);
+      mockEastMoneyCpdEmpty();
       mockTencentPePbSuccess(20.0, 5.0, 150);
+      mockEastMoneyCpdEmpty();
 
       const result = await batchUpdateValuations(db, 0); // 0ms delay for test speed
       expect(result.total).toBe(2);
@@ -437,8 +471,10 @@ describe('valuationService', () => {
 
       // First stock succeeds, second fails all sources
       mockTencentPePbSuccess(25.5, 8.2, 1800);
+      mockEastMoneyCpdEmpty();
       mockTencentPePbFailure(); // 000858 tencent fails
-      mockSinaFailure();        // 000858 sina fails
+      mockSinaFailure(); // 000858 sina fails
+      mockEastMoneyCpdEmpty();
 
       const result = await batchUpdateValuations(db, 0);
       expect(result.total).toBe(2);

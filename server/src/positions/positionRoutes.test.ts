@@ -26,7 +26,7 @@ function createApp() {
 async function registerAndGetToken(app: express.Express, username = 'testuser'): Promise<string> {
   const res = await request(app)
     .post('/api/auth/register')
-    .send({ username, password: 'pass123' });
+    .send({ username, password: 'pass123', agreedTerms: true });
   return res.body.token;
 }
 
@@ -236,6 +236,16 @@ describe('Position Routes', () => {
 
       expect(res.status).toBe(200);
       expect(res.body.position.shares).toBe(200);
+    });
+
+    it('should update buy date', async () => {
+      const res = await request(app)
+        .put(`/api/positions/${positionId}`)
+        .set('Authorization', `Bearer ${token}`)
+        .send({ buyDate: '2023-08-01' });
+
+      expect(res.status).toBe(200);
+      expect(res.body.position.buyDate).toBe('2023-08-01');
     });
 
     it('should recalculate P&L after update when market data exists', async () => {

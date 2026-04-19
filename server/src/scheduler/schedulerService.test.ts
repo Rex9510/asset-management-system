@@ -132,6 +132,19 @@ describe('runFullAnalysis', () => {
 });
 
 describe('checkVolatility', () => {
+  let daySpy: jest.SpyInstance;
+  let hourSpy: jest.SpyInstance;
+
+  beforeEach(() => {
+    daySpy = jest.spyOn(tradingDayGuard, 'isTradingDay').mockReturnValue(true);
+    hourSpy = jest.spyOn(tradingDayGuard, 'isTradingHours').mockReturnValue(true);
+  });
+
+  afterEach(() => {
+    daySpy.mockRestore();
+    hourSpy.mockRestore();
+  });
+
   it('should trigger for >3% change', async () => {
     const db = makeDb();
     addUser(db, 1); addPos(db, 1, '600000', 'A');

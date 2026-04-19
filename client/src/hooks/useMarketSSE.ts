@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, useCallback, useMemo } from 'react';
+import { fetchQuotesForStockCodes, MarketQuoteDTO } from '../api/market';
 
 export interface SSEQuote {
   stockCode: string;
@@ -14,6 +15,8 @@ interface UseMarketSSEResult {
   quotes: Map<string, SSEQuote>;
   isConnected: boolean;
   isDelayed: boolean;
+  /** 立即请求 REST 行情并合并到 quotes（切换 tab 时用；可传入 codes 避免依赖尚未提交的 state） */
+  refreshQuotes: (codes?: string[]) => Promise<void>;
 }
 
 const MAX_RETRIES = 3;
@@ -30,6 +33,22 @@ export function useMarketSSE(stockCodes: string[]): UseMarketSSEResult {
   // Stabilize stockCodes reference
   const codesKey = useMemo(() => [...stockCodes].sort().join(','), [stockCodes]);
   const hasStocks = stockCodes.length > 0;
+  const stockCodesRef = useRef(stockCodes);
+  stockCodesRef.current = stockCodes;
+
+  const refreshQuotes = useCallback(async (codes?: string[]) => {
+    const list = codes ?? stockCodesRef.current;
+    if (list.length === 0) return;
+    const rows = await fetchQuotesForStockCodes(list);
+    if (rows.length === 0) return;
+    setQuotes((prev) => {
+      const next = new Map(prev);
+      for (const q of rows) {
+        next.set(q.stockCode, quoteDtoToSSE(q));
+      }
+      return next;
+    });
+  }, []);
 
   const cleanup = useCallback(() => {
     if (retryTimerRef.current) {
@@ -119,5 +138,17 @@ export function useMarketSSE(stockCodes: string[]): UseMarketSSEResult {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [codesKey, hasStocks]);
 
-  return { quotes, isConnected, isDelayed };
+  return { quotes, isConnected, isDelayed, refreshQuotes };
+}
+
+function quoteDtoToSSE(q: MarketQuoteDTO): SSEQuote {
+  return {
+    stockCode: q.stockCode,
+    stockName: q.stockName,
+    price: q.price,
+    changePercent: q.changePercent,
+    volume: q.volume,
+    timestamp: q.timestamp,
+    delayed: q.delayed,
+  };
 }

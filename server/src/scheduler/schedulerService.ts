@@ -16,7 +16,7 @@ import { updateRotationStatus } from '../rotation/rotationService';
 import { updateChainStatus } from '../chain/commodityChainService';
 import { updateMarketEnv } from '../marketenv/marketEnvService';
 import { updateSentiment } from '../sentiment/sentimentService';
-import { updateAllMonitors } from '../cycle/cycleDetectorService';
+import { updateAllMonitors, refreshAllMonitorPrices } from '../cycle/cycleDetectorService';
 import { trackDailyPicks } from '../dailypick/dailyPickTrackingService';
 import { checkAllUsersConcentrationRisk } from '../concentration/concentrationService';
 import { takeAllUsersSnapshot } from '../snapshot/snapshotService';
@@ -77,6 +77,64 @@ const postCloseTimers: ReturnType<typeof setTimeout>[] = [];
 // 10-minute timeout for each post-close task
 const TASK_TIMEOUT_MS = 10 * 60 * 1000;
 
+async function refreshAllPositionPrices(db: Database.Database): Promise<void> {
+  const stocks = db.prepare(
+    'SELECT DISTINCT stock_code, stock_name FROM positions'
+  ).all() as { stock_code: string; stock_name: string }[];
+
+  for (const stock of stocks) {
+    if (!/^\d{6}$/.test(stock.stock_code)) continue;
+
+    try {
+      const quote = await getQuote(stock.stock_code, db);
+      db.prepare(
+        `INSERT OR REPLACE INTO market_cache (stock_code, stock_name, price, change_percent, volume, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?)`
+      ).run(
+        quote.stockCode,
+        quote.stockName || stock.stock_name || quote.stockCode,
+        quote.price,
+        quote.changePercent,
+        quote.volume,
+        quote.timestamp
+      );
+      continue;
+    } catch {
+      // Live quote unavailable, fallback to last trading-day close.
+    }
+
+    const rows = db.prepare(
+      `SELECT trade_date, close_price
+       FROM market_history
+       WHERE stock_code = ?
+       ORDER BY trade_date DESC
+       LIMIT 2`
+    ).all(stock.stock_code) as { trade_date: string; close_price: number }[];
+
+    if (rows.length === 0) continue;
+
+    const latest = rows[0];
+    const prev = rows[1];
+    const changePercent =
+      prev && prev.close_price > 0
+        ? ((latest.close_price - prev.close_price) / prev.close_price) * 100
+        : 0;
+
+    // updated_at：用日 K 收盘日合成的占位时间戳，与实时行情 ISO 时间格式不同；仅供展示/缓存，排序以 trade_date 为准。
+    db.prepare(
+      `INSERT OR REPLACE INTO market_cache (stock_code, stock_name, price, change_percent, volume, updated_at)
+       VALUES (?, ?, ?, ?, COALESCE((SELECT volume FROM market_cache WHERE stock_code = ?), 0), ?)`
+    ).run(
+      stock.stock_code,
+      stock.stock_name || stock.stock_code,
+      latest.close_price,
+      changePercent,
+      stock.stock_code,
+      `${latest.trade_date}T15:00:00.000+08:00`
+    );
+  }
+}
+
 // --- Start / Stop ---
 
 export function startScheduler(): void {
@@ -118,12 +176,22 @@ export function stopScheduler(): void {
  * Helper: wrap a promise with a timeout. Rejects if the task exceeds the limit.
  */
 function withTimeout<T>(promise: Promise<T>, ms: number, taskName: string): Promise<T> {
-  return Promise.race([
-    promise,
-    new Promise<T>((_, reject) =>
-      setTimeout(() => reject(new Error(`${taskName} 超时(${ms / 1000}s)`)), ms)
-    ),
-  ]);
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error(`${taskName} 超时(${ms / 1000}s)`));
+    }, ms);
+
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (err) => {
+        clearTimeout(timer);
+        reject(err);
+      }
+    );
+  });
 }
 
 /**
@@ -169,7 +237,10 @@ export function getPostCloseTaskList(): PostCloseTask[] {
     },
     {
       hour: 16, minute: 40, name: '周期底部检测',
-      execute: async (db) => { updateAllMonitors(db); },
+      execute: async (db) => {
+        await refreshAllMonitorPrices(db);
+        updateAllMonitors(db);
+      },
     },
     {
       hour: 16, minute: 50, name: '每日关注追踪',
@@ -177,7 +248,10 @@ export function getPostCloseTaskList(): PostCloseTask[] {
     },
     {
       hour: 17, minute: 0, name: '持仓集中度检查',
-      execute: async (db) => { checkAllUsersConcentrationRisk(db); },
+      execute: async (db) => {
+        await refreshAllPositionPrices(db);
+        checkAllUsersConcentrationRisk(db);
+      },
     },
     {
       hour: 17, minute: 10, name: '持仓快照记录',
@@ -234,6 +308,8 @@ export async function runStartupDataRefresh(db?: Database.Database): Promise<voi
     { name: '商品传导链状态更新', execute: async (d) => { await updateChainStatus(d); } },
     { name: '大盘环境判断', execute: async (d) => { await updateMarketEnv(d); } },
     { name: '市场情绪指数计算', execute: (d) => { updateSentiment(d); } },
+    { name: '持仓价格刷新', execute: async (d) => { await refreshAllPositionPrices(d); } },
+    { name: '周期监控价格刷新', execute: async (d) => { await refreshAllMonitorPrices(d); } },
     { name: '周期底部检测', execute: (d) => { updateAllMonitors(d); } },
     { name: '持仓集中度检查', execute: (d) => { checkAllUsersConcentrationRisk(d); } },
   ];
@@ -322,6 +398,20 @@ export async function runScheduledJobs(db?: Database.Database): Promise<void> {
     console.log(`定时分析完成: ${count} 条`);
   } catch (err) {
     console.error('定时分析失败:', err);
+  }
+
+  // 1.5 周期监控价格刷新（优先实时行情，失败回退最近交易日）
+  try {
+    await refreshAllMonitorPrices(database);
+  } catch (err) {
+    console.error('周期监控价格刷新失败:', err);
+  }
+
+  // 1.6 持仓/关注价格刷新（优先实时行情，失败回退最近交易日）
+  try {
+    await refreshAllPositionPrices(database);
+  } catch (err) {
+    console.error('持仓价格刷新失败:', err);
   }
 
   // 2. Volatility check (波动提醒) - check all user positions

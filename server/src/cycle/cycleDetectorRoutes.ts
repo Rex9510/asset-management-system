@@ -20,12 +20,17 @@ router.get('/monitors', (req: Request, res: Response, next: NextFunction) => {
 router.post('/monitors', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const userId = req.user!.id;
-    const { stockCode } = req.body;
+    const { stockCode, stockName: bodyStockName } = req.body as {
+      stockCode?: unknown;
+      stockName?: unknown;
+    };
     if (!stockCode || typeof stockCode !== 'string') {
       res.status(400).json({ error: { code: 'VALIDATION_ERROR', message: '请提供股票代码' } });
       return;
     }
-    const monitor = await addMonitor(userId, stockCode.trim());
+    const preferredName =
+      typeof bodyStockName === 'string' && bodyStockName.trim() ? bodyStockName.trim() : null;
+    const monitor = await addMonitor(userId, stockCode.trim(), undefined, preferredName);
     res.status(201).json(monitor);
   } catch (err) {
     next(err);

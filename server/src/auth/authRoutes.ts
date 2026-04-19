@@ -1,10 +1,11 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { register, login, blacklistToken } from './authService';
 import { authMiddleware } from '../middleware/authMiddleware';
+import { loginIpLimiter, registerIpLimiter } from '../middleware/rateLimits';
 
 const router = Router();
 
-router.post('/register', (req: Request, res: Response, next: NextFunction) => {
+router.post('/register', registerIpLimiter, (req: Request, res: Response, next: NextFunction) => {
   try {
     const { username, password, agreedTerms } = req.body;
     const result = register(username, password, !!agreedTerms);
@@ -14,7 +15,7 @@ router.post('/register', (req: Request, res: Response, next: NextFunction) => {
   }
 });
 
-router.post('/login', (req: Request, res: Response, next: NextFunction) => {
+router.post('/login', loginIpLimiter, (req: Request, res: Response, next: NextFunction) => {
   try {
     const { username, password, agreedTerms } = req.body;
     const result = login(username, password, !!agreedTerms);

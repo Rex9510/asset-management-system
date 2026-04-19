@@ -71,9 +71,17 @@ const RotationTag: React.FC = () => {
       <span
         style={{ ...styles.tag, color, background: bg, cursor: 'pointer' }}
         data-testid="rotation-tag"
+        role="button"
+        tabIndex={0}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            setShowDesc(!showDesc);
+          }
+        }}
         onClick={toggleDesc}
       >
-        {phase} {data.phaseLabel} 🔄
+        {phase} {data.phaseLabel} 🔄 ›
       </span>
       {showDesc && data && (
         <div style={styles.overlay} onClick={() => setShowDesc(false)}>

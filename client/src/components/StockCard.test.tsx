@@ -89,6 +89,21 @@ describe('StockCard', () => {
     expect(screen.getByText('取消关注')).toBeInTheDocument();
   });
 
+  it('shows daily change percent when quote change is available', () => {
+    render(<StockCard position={makePosition({
+      positionType: 'watching',
+      costPrice: null,
+      shares: null,
+      buyDate: null,
+      profitLoss: null,
+      profitLossPercent: null,
+      holdingDays: null,
+      changePercent: 1.23,
+    })} />);
+
+    expect(screen.getByText('+1.23%')).toBeInTheDocument();
+  });
+
   it('shows -- when currentPrice is null', () => {
     render(<StockCard position={makePosition({ currentPrice: null })} />);
     const dashes = screen.getAllByText('--');

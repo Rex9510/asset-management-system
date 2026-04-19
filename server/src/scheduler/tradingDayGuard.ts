@@ -63,6 +63,15 @@ function formatDate(date: Date): string {
  * 3. 排除法定节假日（从 holidays.json 读取）
  * 4. 兜底：节假日表缺失时回退到仅判断周六日
  */
+/**
+ * 日历日期 `YYYY-MM-DD` 是否为 A 股交易日（与 isTradingDay 相同节假日/补班表）。
+ * 使用当日正午解析，避免时区边界把日历日推偏。
+ */
+export function isTradingDayIsoDate(isoDate: string): boolean {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(isoDate)) return false;
+  return isTradingDay(new Date(`${isoDate}T12:00:00`));
+}
+
 export function isTradingDay(date: Date): boolean {
   const data = loadHolidayData();
   const dateStr = formatDate(date);

@@ -8,12 +8,14 @@ jest.mock('../api/positions', () => ({
   createPosition: jest.fn(),
   updatePosition: jest.fn(),
   deletePosition: jest.fn(),
+  searchStockCandidates: jest.fn(),
 }));
 
 const positionsApi = require('../api/positions') as {
   createPosition: jest.Mock;
   updatePosition: jest.Mock;
   deletePosition: jest.Mock;
+  searchStockCandidates: jest.Mock;
 };
 
 const mockOnClose = jest.fn();
@@ -35,14 +37,17 @@ beforeEach(() => {
   positionsApi.createPosition.mockResolvedValue(makePosition());
   positionsApi.updatePosition.mockResolvedValue(makePosition());
   positionsApi.deletePosition.mockResolvedValue(undefined);
+  positionsApi.searchStockCandidates.mockResolvedValue([
+    { stockCode: '600000', stockName: '浦发银行' },
+    { stockCode: '000001', stockName: '平安银行' },
+  ]);
 });
 
 describe('PositionForm - Add Mode', () => {
   it('renders add form with holding type by default', () => {
     render(<PositionForm position={null} onClose={mockOnClose} onSaved={mockOnSaved} />);
     expect(screen.getByLabelText('添加持仓')).toBeInTheDocument();
-    expect(screen.getByLabelText('股票代码')).toBeInTheDocument();
-    expect(screen.getByLabelText('股票名称')).toBeInTheDocument();
+    expect(screen.getByLabelText('股票')).toBeInTheDocument();
     expect(screen.getByLabelText('成本价')).toBeInTheDocument();
     expect(screen.getByLabelText('份额')).toBeInTheDocument();
     expect(screen.getByLabelText('买入时间')).toBeInTheDocument();
@@ -59,28 +64,29 @@ describe('PositionForm - Add Mode', () => {
   it('shows validation errors for empty holding form', async () => {
     render(<PositionForm position={null} onClose={mockOnClose} onSaved={mockOnSaved} />);
     await userEvent.click(screen.getByText('添加'));
-    expect(screen.getByText('请输入股票代码')).toBeInTheDocument();
-    expect(screen.getByText('请输入股票名称')).toBeInTheDocument();
+    expect(screen.getByText('请输入股票代码或名称')).toBeInTheDocument();
     expect(screen.getByText('请输入成本价')).toBeInTheDocument();
     expect(screen.getByText('请输入份额')).toBeInTheDocument();
     expect(screen.getByText('请输入买入时间')).toBeInTheDocument();
   });
 
-  it('validates stock code format (A-share 6 digits)', async () => {
+  it('validates stock selection must come from suggestions', async () => {
     render(<PositionForm position={null} onClose={mockOnClose} onSaved={mockOnSaved} />);
-    await userEvent.type(screen.getByLabelText('股票代码'), '12345');
-    await userEvent.type(screen.getByLabelText('股票名称'), '测试');
+    await userEvent.type(screen.getByLabelText('股票'), '12345');
     await userEvent.type(screen.getByLabelText('成本价'), '10');
     await userEvent.type(screen.getByLabelText('份额'), '100');
     fireEvent.change(screen.getByLabelText('买入时间'), { target: { value: '2024-01-01' } });
     await userEvent.click(screen.getByText('添加'));
-    expect(screen.getByText('股票代码无效，请输入6位A股代码（0/3/6开头）')).toBeInTheDocument();
+    expect(screen.getByText('请从搜索结果中选择股票')).toBeInTheDocument();
   });
 
   it('validates cost price must be positive', async () => {
     render(<PositionForm position={null} onClose={mockOnClose} onSaved={mockOnSaved} />);
-    await userEvent.type(screen.getByLabelText('股票代码'), '600000');
-    await userEvent.type(screen.getByLabelText('股票名称'), '浦发银行');
+    await userEvent.type(screen.getByLabelText('股票'), '浦发');
+    await waitFor(() => {
+      expect(screen.getByText('浦发银行')).toBeInTheDocument();
+    });
+    await userEvent.click(screen.getByText('浦发银行'));
     await userEvent.type(screen.getByLabelText('成本价'), '-5');
     await userEvent.type(screen.getByLabelText('份额'), '100');
     fireEvent.change(screen.getByLabelText('买入时间'), { target: { value: '2024-01-01' } });
@@ -90,8 +96,11 @@ describe('PositionForm - Add Mode', () => {
 
   it('validates shares must be positive integer', async () => {
     render(<PositionForm position={null} onClose={mockOnClose} onSaved={mockOnSaved} />);
-    await userEvent.type(screen.getByLabelText('股票代码'), '600000');
-    await userEvent.type(screen.getByLabelText('股票名称'), '浦发银行');
+    await userEvent.type(screen.getByLabelText('股票'), '浦发');
+    await waitFor(() => {
+      expect(screen.getByText('浦发银行')).toBeInTheDocument();
+    });
+    await userEvent.click(screen.getByText('浦发银行'));
     await userEvent.type(screen.getByLabelText('成本价'), '10');
     await userEvent.type(screen.getByLabelText('份额'), '10.5');
     fireEvent.change(screen.getByLabelText('买入时间'), { target: { value: '2024-01-01' } });
@@ -101,8 +110,11 @@ describe('PositionForm - Add Mode', () => {
 
   it('submits valid holding form and calls onSaved', async () => {
     render(<PositionForm position={null} onClose={mockOnClose} onSaved={mockOnSaved} />);
-    await userEvent.type(screen.getByLabelText('股票代码'), '600000');
-    await userEvent.type(screen.getByLabelText('股票名称'), '浦发银行');
+    await userEvent.type(screen.getByLabelText('股票'), '浦发');
+    await waitFor(() => {
+      expect(screen.getByText('浦发银行')).toBeInTheDocument();
+    });
+    await userEvent.click(screen.getByText('浦发银行'));
     await userEvent.type(screen.getByLabelText('成本价'), '10.5');
     await userEvent.type(screen.getByLabelText('份额'), '1000');
     fireEvent.change(screen.getByLabelText('买入时间'), { target: { value: '2024-01-01' } });
@@ -123,8 +135,11 @@ describe('PositionForm - Add Mode', () => {
 
   it('submits valid watching form (only code and name)', async () => {
     render(<PositionForm position={null} defaultType="watching" onClose={mockOnClose} onSaved={mockOnSaved} />);
-    await userEvent.type(screen.getByLabelText('股票代码'), '000001');
-    await userEvent.type(screen.getByLabelText('股票名称'), '平安银行');
+    await userEvent.type(screen.getByLabelText('股票'), '平安');
+    await waitFor(() => {
+      expect(screen.getByText('平安银行')).toBeInTheDocument();
+    });
+    await userEvent.click(screen.getByText('平安银行'));
     await userEvent.click(screen.getByText('添加'));
 
     await waitFor(() => {
@@ -161,6 +176,7 @@ describe('PositionForm - Edit Mode', () => {
     // Holding fields should be pre-filled
     expect(screen.getByLabelText('成本价')).toHaveValue('10.5');
     expect(screen.getByLabelText('份额')).toHaveValue('1000');
+    expect(screen.getByLabelText('买入时间')).toHaveValue('2024-06-01');
   });
 
   it('submits edit form and calls updatePosition', async () => {
@@ -175,6 +191,7 @@ describe('PositionForm - Edit Mode', () => {
       expect(positionsApi.updatePosition).toHaveBeenCalledWith(1, {
         costPrice: 12,
         shares: 1000,
+        buyDate: '2024-06-01',
       });
       expect(mockOnSaved).toHaveBeenCalled();
     });

@@ -28,7 +28,7 @@ function createApp() {
 async function registerAndGetToken(app: express.Express): Promise<string> {
   const res = await request(app)
     .post('/api/auth/register')
-    .send({ username: 'testuser', password: 'pass123' });
+    .send({ username: 'testuser', password: 'pass123', agreedTerms: true });
   return res.body.token;
 }
 
@@ -121,7 +121,7 @@ describe('Stop Loss Routes', () => {
       // Create another user
       const res2 = await request(app)
         .post('/api/auth/register')
-        .send({ username: 'otheruser', password: 'pass456' });
+        .send({ username: 'otheruser', password: 'pass456', agreedTerms: true });
       const otherToken = res2.body.token;
       const otherUser = testDb.prepare("SELECT id FROM users WHERE username = 'otheruser'").get() as { id: number };
 

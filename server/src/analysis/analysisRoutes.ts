@@ -1,5 +1,6 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { authMiddleware } from '../middleware/authMiddleware';
+import { analysisTriggerUserLimiter } from '../middleware/rateLimits';
 import { triggerAnalysis, getAnalysisHistory } from './analysisService';
 import { Errors } from '../errors/AppError';
 
@@ -9,7 +10,7 @@ const router = Router();
 router.use(authMiddleware);
 
 // POST /api/analysis/trigger - Manually trigger analysis for a stock
-router.post('/trigger', async (req: Request, res: Response, next: NextFunction) => {
+router.post('/trigger', analysisTriggerUserLimiter, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const userId = req.user!.id;
     const { stockCode } = req.body;

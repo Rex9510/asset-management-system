@@ -42,6 +42,12 @@ CREATE TABLE IF NOT EXISTS chain_status (
     short_name TEXT NOT NULL,
     status TEXT NOT NULL CHECK(status IN ('activated', 'transmitting', 'inactive')),
     change_10d REAL,
+    change_aux REAL,
+    primary_days_used INTEGER,
+    max_history_days INTEGER,
+    window_note TEXT,
+    pending_status TEXT,
+    pending_count INTEGER DEFAULT 0,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     PRIMARY KEY (node_index)
 );

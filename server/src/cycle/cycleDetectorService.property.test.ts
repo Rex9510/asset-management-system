@@ -5,9 +5,9 @@
 import * as fc from 'fast-check';
 import Database from 'better-sqlite3';
 
-// Mock ensureStockHistory to avoid network calls in tests
+// Mock fetchAndSaveStockHistory to avoid network calls in tests
 jest.mock('../market/historyService', () => ({
-  ensureStockHistory: jest.fn().mockResolvedValue(0),
+  fetchAndSaveStockHistory: jest.fn().mockResolvedValue(0),
 }));
 
 import { initializeDatabase } from '../db/init';

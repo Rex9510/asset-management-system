@@ -145,12 +145,16 @@ function formatDetail(detail: string, type: string): string {
         ].filter(Boolean).join('\n');
 
       case 'cycle_bottom':
-        // { stockCode, stockName, currentPrice, signals, bottomRange, min3y, max3y }
+        // { stockCode, stockName, currentPrice, signals, bottomRange, min3y, max3y, analysisWindowYears? }
         return [
           d.currentPrice != null ? `当前价：${fmt2(d.currentPrice)}元` : '',
           d.bottomRange ? `预估底部区间：${d.bottomRange}` : '',
           Array.isArray(d.signals) && d.signals.length > 0 ? `触发信号：${d.signals.join('、')}` : '',
-          d.min3y != null && d.max3y != null ? `近3年区间：${fmt2(d.min3y)}-${fmt2(d.max3y)}` : '',
+          d.min3y != null && d.max3y != null
+            ? typeof d.analysisWindowYears === 'number' && d.analysisWindowYears > 0
+              ? `参考约${d.analysisWindowYears % 1 === 0 ? d.analysisWindowYears : d.analysisWindowYears.toFixed(1)}年价格区间：${fmt2(d.min3y)}-${fmt2(d.max3y)}`
+              : `参考价格区间：${fmt2(d.min3y)}-${fmt2(d.max3y)}`
+            : '',
         ].filter(Boolean).join('\n');
 
       case 'volatility_alert':

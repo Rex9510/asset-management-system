@@ -29,7 +29,7 @@ function createApp() {
 async function registerAndGetToken(app: express.Express): Promise<string> {
   const res = await request(app)
     .post('/api/auth/register')
-    .send({ username: 'testuser', password: 'pass123' });
+    .send({ username: 'testuser', password: 'pass123', agreedTerms: true });
   return res.body.token;
 }
 

@@ -455,6 +455,24 @@ describe('positionService', () => {
       expect(() => updatePosition(created.id, userId, {}, db)).toThrow(AppError);
     });
 
+    it('should update buy date only', async () => {
+      const created = await createPosition(userId, { stockCode: '600000', stockName: '浦发银行', costPrice: 10, shares: 100, buyDate: '2024-01-15' }, db);
+      const updated = updatePosition(created.id, userId, { buyDate: '2023-06-01' }, db);
+      expect(updated.buyDate).toBe('2023-06-01');
+      expect(updated.costPrice).toBe(10);
+      expect(updated.shares).toBe(100);
+    });
+
+    it('should reject invalid buyDate on update', async () => {
+      const created = await createPosition(userId, { stockCode: '600000', stockName: '浦发银行', costPrice: 10, shares: 100, buyDate: '2024-01-15' }, db);
+      expect(() => updatePosition(created.id, userId, { buyDate: 'not-a-date' }, db)).toThrow(AppError);
+    });
+
+    it('should reject buyDate update for watching position', async () => {
+      const created = await createPosition(userId, { stockCode: '600000', stockName: '浦发银行', positionType: 'watching' }, db);
+      expect(() => updatePosition(created.id, userId, { buyDate: '2024-01-15' }, db)).toThrow(AppError);
+    });
+
     it('should reject update for non-existent position', () => {
       expect(() => updatePosition(999, userId, { costPrice: 12 }, db)).toThrow(AppError);
     });

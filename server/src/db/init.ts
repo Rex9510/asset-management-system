@@ -49,6 +49,28 @@ export function runPhase2Migration(database: Database.Database): void {
     "SELECT sql FROM sqlite_master WHERE type='table' AND name='messages'"
   ).get() as { sql: string } | undefined;
 
+  // 2d. chain_status：传导链主/辅窗口与状态滞回（对已存在库幂等追加列）
+  const chainCols = database.prepare('PRAGMA table_info(chain_status)').all() as { name: string }[];
+  const chainColNames = new Set(chainCols.map((c) => c.name));
+  if (!chainColNames.has('change_aux')) {
+    database.exec('ALTER TABLE chain_status ADD COLUMN change_aux REAL');
+  }
+  if (!chainColNames.has('primary_days_used')) {
+    database.exec('ALTER TABLE chain_status ADD COLUMN primary_days_used INTEGER');
+  }
+  if (!chainColNames.has('max_history_days')) {
+    database.exec('ALTER TABLE chain_status ADD COLUMN max_history_days INTEGER');
+  }
+  if (!chainColNames.has('window_note')) {
+    database.exec('ALTER TABLE chain_status ADD COLUMN window_note TEXT');
+  }
+  if (!chainColNames.has('pending_status')) {
+    database.exec('ALTER TABLE chain_status ADD COLUMN pending_status TEXT');
+  }
+  if (!chainColNames.has('pending_count')) {
+    database.exec('ALTER TABLE chain_status ADD COLUMN pending_count INTEGER DEFAULT 0');
+  }
+
   if (messagesSchema && messagesSchema.sql.includes("CHECK(type IN")) {
     database.exec(`
       CREATE TABLE IF NOT EXISTS messages_new (

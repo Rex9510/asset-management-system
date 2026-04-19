@@ -71,6 +71,8 @@ export interface CreatePositionInput {
 export interface UpdatePositionInput {
   costPrice?: number;
   shares?: number;
+  /** 建仓日；与快照/补录一致，仅纳入 buy_date ≤ 快照日的持仓 */
+  buyDate?: string;
 }
 
 export interface StockCandidate {
@@ -256,7 +258,7 @@ export async function createPosition(
 }
 
 /**
- * Update an existing position's cost price and/or shares.
+ * Update an existing position's cost price, shares, and/or buy date (holding only).
  */
 export function updatePosition(id: number, userId: number, input: UpdatePositionInput, db?: Database.Database): PositionResponse {
   const database = db || getDatabase();
@@ -281,17 +283,28 @@ export function updatePosition(id: number, userId: number, input: UpdatePosition
     }
   }
 
-  if (input.costPrice === undefined && input.shares === undefined) {
-    throw Errors.badRequest('请提供需要更新的字段（成本价或份额）');
+  if (input.buyDate !== undefined) {
+    if (existing.position_type !== 'holding') {
+      throw Errors.badRequest('仅持仓可修改买入日期');
+    }
+    if (!input.buyDate || !isValidDate(input.buyDate)) {
+      throw Errors.badRequest('买入日期格式无效，请使用YYYY-MM-DD格式');
+    }
+  }
+
+  if (input.costPrice === undefined && input.shares === undefined && input.buyDate === undefined) {
+    throw Errors.badRequest('请提供需要更新的字段（成本价、份额或买入日期）');
   }
 
   const newCostPrice = input.costPrice ?? existing.cost_price;
   const newShares = input.shares ?? existing.shares;
+  const newBuyDate =
+    input.buyDate !== undefined ? input.buyDate : existing.buy_date;
   const now = new Date().toISOString();
 
   database
-    .prepare('UPDATE positions SET cost_price = ?, shares = ?, updated_at = ? WHERE id = ? AND user_id = ?')
-    .run(newCostPrice, newShares, now, id, userId);
+    .prepare('UPDATE positions SET cost_price = ?, shares = ?, buy_date = ?, updated_at = ? WHERE id = ? AND user_id = ?')
+    .run(newCostPrice, newShares, newBuyDate, now, id, userId);
 
   logOperation(
     {

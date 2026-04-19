@@ -25,7 +25,7 @@ describe('authService', () => {
 
   describe('register', () => {
     it('should register a new user and return token', () => {
-      const result = register('testuser', 'password123', db);
+      const result = register('testuser', 'password123', true, db);
 
       expect(result.token).toBeDefined();
       expect(result.user.username).toBe('testuser');
@@ -33,7 +33,7 @@ describe('authService', () => {
     });
 
     it('should hash the password (not store plaintext)', () => {
-      register('testuser', 'password123', db);
+      register('testuser', 'password123', true, db);
 
       const row = db.prepare('SELECT password_hash FROM users WHERE username = ?').get('testuser') as { password_hash: string };
       expect(row.password_hash).not.toBe('password123');
@@ -41,11 +41,11 @@ describe('authService', () => {
     });
 
     it('should reject duplicate username', () => {
-      register('testuser', 'password123', db);
+      register('testuser', 'password123', true, db);
 
-      expect(() => register('testuser', 'other', db)).toThrow(AppError);
+      expect(() => register('testuser', 'other', true, db)).toThrow(AppError);
       try {
-        register('testuser', 'other', db);
+        register('testuser', 'other', true, db);
       } catch (err) {
         const appErr = err as AppError;
         expect(appErr.statusCode).toBe(409);
@@ -54,15 +54,15 @@ describe('authService', () => {
     });
 
     it('should reject empty username', () => {
-      expect(() => register('', 'password123', db)).toThrow(AppError);
+      expect(() => register('', 'password123', true, db)).toThrow(AppError);
     });
 
     it('should reject empty password', () => {
-      expect(() => register('testuser', '', db)).toThrow(AppError);
+      expect(() => register('testuser', '', true, db)).toThrow(AppError);
     });
 
     it('should return a valid JWT token', () => {
-      const result = register('testuser', 'password123', db);
+      const result = register('testuser', 'password123', true, db);
       const payload = verifyToken(result.token);
 
       expect(payload.id).toBe(result.user.id);
@@ -72,36 +72,36 @@ describe('authService', () => {
 
   describe('login', () => {
     beforeEach(() => {
-      register('testuser', 'password123', db);
+      register('testuser', 'password123', true, db);
     });
 
     it('should login with correct credentials', () => {
-      const result = login('testuser', 'password123', db);
+      const result = login('testuser', 'password123', true, db);
 
       expect(result.token).toBeDefined();
       expect(result.user.username).toBe('testuser');
     });
 
     it('should reject wrong password', () => {
-      expect(() => login('testuser', 'wrong', db)).toThrow(AppError);
+      expect(() => login('testuser', 'wrong', undefined, db)).toThrow(AppError);
       try {
-        login('testuser', 'wrong', db);
+        login('testuser', 'wrong', undefined, db);
       } catch (err) {
         expect((err as AppError).statusCode).toBe(401);
       }
     });
 
     it('should reject non-existent user', () => {
-      expect(() => login('nouser', 'password123', db)).toThrow(AppError);
+      expect(() => login('nouser', 'password123', undefined, db)).toThrow(AppError);
       try {
-        login('nouser', 'password123', db);
+        login('nouser', 'password123', undefined, db);
       } catch (err) {
         expect((err as AppError).statusCode).toBe(401);
       }
     });
 
     it('should increment failed_login_count on wrong password', () => {
-      try { login('testuser', 'wrong', db); } catch {}
+      try { login('testuser', 'wrong', undefined, db); } catch {}
 
       const row = db.prepare('SELECT failed_login_count FROM users WHERE username = ?').get('testuser') as { failed_login_count: number };
       expect(row.failed_login_count).toBe(1);
@@ -109,12 +109,12 @@ describe('authService', () => {
 
     it('should lock account after 5 consecutive failed attempts', () => {
       for (let i = 0; i < 5; i++) {
-        try { login('testuser', 'wrong', db); } catch {}
+        try { login('testuser', 'wrong', undefined, db); } catch {}
       }
 
-      expect(() => login('testuser', 'password123', db)).toThrow(AppError);
+      expect(() => login('testuser', 'password123', true, db)).toThrow(AppError);
       try {
-        login('testuser', 'password123', db);
+        login('testuser', 'password123', true, db);
       } catch (err) {
         const appErr = err as AppError;
         expect(appErr.statusCode).toBe(423);
@@ -123,10 +123,10 @@ describe('authService', () => {
     });
 
     it('should reset failed count on successful login', () => {
-      try { login('testuser', 'wrong', db); } catch {}
-      try { login('testuser', 'wrong', db); } catch {}
+      try { login('testuser', 'wrong', undefined, db); } catch {}
+      try { login('testuser', 'wrong', undefined, db); } catch {}
 
-      login('testuser', 'password123', db);
+      login('testuser', 'password123', true, db);
 
       const row = db.prepare('SELECT failed_login_count FROM users WHERE username = ?').get('testuser') as { failed_login_count: number };
       expect(row.failed_login_count).toBe(0);
@@ -135,25 +135,25 @@ describe('authService', () => {
     it('should unlock account after lock duration expires', () => {
       // Manually set locked_until to the past
       for (let i = 0; i < 5; i++) {
-        try { login('testuser', 'wrong', db); } catch {}
+        try { login('testuser', 'wrong', undefined, db); } catch {}
       }
 
       const pastTime = new Date(Date.now() - 1000).toISOString();
       db.prepare('UPDATE users SET locked_until = ? WHERE username = ?').run(pastTime, 'testuser');
 
-      const result = login('testuser', 'password123', db);
+      const result = login('testuser', 'password123', true, db);
       expect(result.token).toBeDefined();
     });
 
     it('should reject empty credentials', () => {
-      expect(() => login('', 'password123', db)).toThrow(AppError);
-      expect(() => login('testuser', '', db)).toThrow(AppError);
+      expect(() => login('', 'password123', undefined, db)).toThrow(AppError);
+      expect(() => login('testuser', '', undefined, db)).toThrow(AppError);
     });
   });
 
   describe('verifyToken', () => {
     it('should verify a valid token', () => {
-      const result = register('testuser', 'password123', db);
+      const result = register('testuser', 'password123', true, db);
       const payload = verifyToken(result.token);
 
       expect(payload.id).toBe(result.user.id);
@@ -165,7 +165,7 @@ describe('authService', () => {
     });
 
     it('should reject a blacklisted token', () => {
-      const result = register('testuser', 'password123', db);
+      const result = register('testuser', 'password123', true, db);
       blacklistToken(result.token);
 
       expect(() => verifyToken(result.token)).toThrow(AppError);

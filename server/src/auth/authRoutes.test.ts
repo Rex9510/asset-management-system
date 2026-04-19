@@ -50,7 +50,7 @@ describe('Auth Routes', () => {
     it('should register a new user', async () => {
       const res = await request(app)
         .post('/api/auth/register')
-        .send({ username: 'newuser', password: 'pass123' });
+        .send({ username: 'newuser', password: 'pass123', agreedTerms: true });
 
       expect(res.status).toBe(201);
       expect(res.body.token).toBeDefined();
@@ -61,11 +61,11 @@ describe('Auth Routes', () => {
     it('should reject duplicate username with 409', async () => {
       await request(app)
         .post('/api/auth/register')
-        .send({ username: 'newuser', password: 'pass123' });
+        .send({ username: 'newuser', password: 'pass123', agreedTerms: true });
 
       const res = await request(app)
         .post('/api/auth/register')
-        .send({ username: 'newuser', password: 'other' });
+        .send({ username: 'newuser', password: 'other', agreedTerms: true });
 
       expect(res.status).toBe(409);
       expect(res.body.error.message).toContain('用户名已被占用');
@@ -84,13 +84,13 @@ describe('Auth Routes', () => {
     beforeEach(async () => {
       await request(app)
         .post('/api/auth/register')
-        .send({ username: 'testuser', password: 'pass123' });
+        .send({ username: 'testuser', password: 'pass123', agreedTerms: true });
     });
 
     it('should login with correct credentials', async () => {
       const res = await request(app)
         .post('/api/auth/login')
-        .send({ username: 'testuser', password: 'pass123' });
+        .send({ username: 'testuser', password: 'pass123', agreedTerms: true });
 
       expect(res.status).toBe(200);
       expect(res.body.token).toBeDefined();
@@ -114,7 +114,7 @@ describe('Auth Routes', () => {
 
       const res = await request(app)
         .post('/api/auth/login')
-        .send({ username: 'testuser', password: 'pass123' });
+        .send({ username: 'testuser', password: 'pass123', agreedTerms: true });
 
       expect(res.status).toBe(423);
       expect(res.body.error.message).toContain('锁定');
@@ -125,7 +125,7 @@ describe('Auth Routes', () => {
     it('should logout and invalidate token', async () => {
       const registerRes = await request(app)
         .post('/api/auth/register')
-        .send({ username: 'testuser', password: 'pass123' });
+        .send({ username: 'testuser', password: 'pass123', agreedTerms: true });
 
       const token = registerRes.body.token;
 
@@ -155,7 +155,7 @@ describe('Auth Routes', () => {
     it('should allow access with valid token', async () => {
       const registerRes = await request(app)
         .post('/api/auth/register')
-        .send({ username: 'testuser', password: 'pass123' });
+        .send({ username: 'testuser', password: 'pass123', agreedTerms: true });
 
       const token = registerRes.body.token;
 

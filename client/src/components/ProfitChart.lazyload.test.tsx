@@ -34,11 +34,25 @@ jest.mock('react-chartjs-2', () => ({
   Bar: () => <div data-testid="bar-chart">Bar Chart</div>,
 }), { virtual: true });
 
+jest.mock('../api/positions', () => ({
+  getPositions: jest.fn().mockResolvedValue([]),
+}));
+
+jest.mock('../hooks/useMarketSSE', () => ({
+  useMarketSSE: () => ({
+    quotes: new Map(),
+    refreshQuotes: jest.fn().mockResolvedValue(undefined),
+    isConnected: false,
+    isDelayed: false,
+  }),
+}));
+
 jest.mock('../api/snapshot', () => ({
   getChartData: jest.fn().mockResolvedValue({
+    profitCurveMeta: { hasCalendarGaps: false },
     profitCurve: [
-      { date: '2025-01-01', totalValue: 10000, totalProfit: 500 },
-      { date: '2025-01-02', totalValue: 10200, totalProfit: 700 },
+      { date: '2025-01-01', totalValue: 10000, totalProfit: 500, totalCost: 9500, returnOnCostPct: 5.26, dayMvChangePct: null, dayProfitDelta: null },
+      { date: '2025-01-02', totalValue: 10200, totalProfit: 700, totalCost: 9500, returnOnCostPct: 7.37, dayMvChangePct: 2, dayProfitDelta: 200 },
     ],
     sectorDistribution: [
       { sector: '金融', percentage: 60, value: 6000 },

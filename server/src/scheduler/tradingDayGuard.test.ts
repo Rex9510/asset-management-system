@@ -1,4 +1,4 @@
-import { isTradingDay, isTradingHours, _resetHolidayCache } from './tradingDayGuard';
+import { isTradingDay, isTradingDayIsoDate, isTradingHours, _resetHolidayCache } from './tradingDayGuard';
 
 beforeEach(() => {
   _resetHolidayCache();
@@ -58,6 +58,19 @@ describe('isTradingDay', () => {
   test('regular weekday in 2026 returns true', () => {
     // 2026-03-02 is Monday
     expect(isTradingDay(new Date('2026-03-02T10:00:00'))).toBe(true);
+  });
+
+  test('isTradingDayIsoDate matches Date form (weekday)', () => {
+    expect(isTradingDayIsoDate('2025-03-10')).toBe(true);
+  });
+
+  test('isTradingDayIsoDate rejects Sunday', () => {
+    expect(isTradingDayIsoDate('2025-03-09')).toBe(false);
+  });
+
+  test('isTradingDayIsoDate rejects invalid format', () => {
+    expect(isTradingDayIsoDate('2025-3-9')).toBe(false);
+    expect(isTradingDayIsoDate('')).toBe(false);
   });
 
   test('fallback: year not in holiday table uses weekend-only check', () => {

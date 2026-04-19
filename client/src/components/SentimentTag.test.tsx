@@ -55,7 +55,7 @@ describe('SentimentTag', () => {
       expect(screen.getByTestId('sentiment-tag')).toBeInTheDocument();
     });
     const tag = screen.getByTestId('sentiment-tag');
-    expect(tag).toHaveTextContent('😐 情绪48');
+    expect(tag).toHaveTextContent('😐 情绪48 ›');
   });
 
   it('renders fear tag with red color for low score', async () => {
@@ -121,7 +121,7 @@ describe('SentimentTag', () => {
     });
     fireEvent.click(screen.getByTestId('sentiment-tag'));
 
-    expect(screen.getByText('极度恐慌')).toBeInTheDocument();
-    expect(screen.getByText('极度贪婪')).toBeInTheDocument();
+    expect(screen.getByText('😱 恐慌')).toBeInTheDocument();
+    expect(screen.getByText('贪婪 🤑')).toBeInTheDocument();
   });
 });

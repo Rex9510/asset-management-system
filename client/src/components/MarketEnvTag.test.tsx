@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import MarketEnvTag from './MarketEnvTag';
 import * as marketEnvApi from '../api/marketEnv';
@@ -48,7 +48,7 @@ describe('MarketEnvTag', () => {
       expect(screen.getByTestId('marketenv-tag')).toBeInTheDocument();
     });
     const tag = screen.getByTestId('marketenv-tag');
-    expect(tag).toHaveTextContent('牛市 🐂');
+    expect(tag).toHaveTextContent('⚖️ 牛市 🐂 ›');
     expect(tag).toHaveStyle({ color: '#2ed573' });
   });
 
@@ -66,7 +66,7 @@ describe('MarketEnvTag', () => {
       expect(screen.getByTestId('marketenv-tag')).toBeInTheDocument();
     });
     const tag = screen.getByTestId('marketenv-tag');
-    expect(tag).toHaveTextContent('震荡 ⚖️');
+    expect(tag).toHaveTextContent('⚖️ 震荡 ⚖️ ›');
     expect(tag).toHaveStyle({ color: '#ffa502' });
   });
 
@@ -84,9 +84,12 @@ describe('MarketEnvTag', () => {
       expect(screen.getByTestId('marketenv-tag')).toBeInTheDocument();
     });
     const tag = screen.getByTestId('marketenv-tag');
-    expect(tag).toHaveTextContent('熊市 🐻');
+    expect(tag).toHaveTextContent('⚖️ 熊市 🐻 ›');
     expect(tag).toHaveStyle({ color: '#ff4757' });
-    expect(screen.getByTestId('marketenv-risk-tip')).toHaveTextContent('当前大盘处于熊市环境，操作需谨慎');
+    fireEvent.click(tag);
+    expect(
+      screen.getByText('当前大盘处于熊市环境，操作需谨慎')
+    ).toBeInTheDocument();
   });
 
   it('does not show risk tip for non-bear environments', async () => {
@@ -102,6 +105,9 @@ describe('MarketEnvTag', () => {
     await waitFor(() => {
       expect(screen.getByTestId('marketenv-tag')).toBeInTheDocument();
     });
-    expect(screen.queryByTestId('marketenv-risk-tip')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTestId('marketenv-tag'));
+    expect(
+      screen.queryByText('当前大盘处于熊市环境，操作需谨慎')
+    ).not.toBeInTheDocument();
   });
 });

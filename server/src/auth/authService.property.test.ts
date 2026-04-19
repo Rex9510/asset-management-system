@@ -25,11 +25,11 @@ describe('属性测试：注册-登录往返', () => {
     fc.assert(
       fc.property(validUsername, validPassword, (username, password) => {
         const db = makeDb();
-        const regResult = register(username, password, db);
+        const regResult = register(username, password, true, db);
         expect(regResult.token).toBeTruthy();
         expect(regResult.user.username).toBe(username);
 
-        const loginResult = login(username, password, db);
+        const loginResult = login(username, password, true, db);
         expect(loginResult.token).toBeTruthy();
         expect(loginResult.user.username).toBe(username);
         expect(loginResult.user.id).toBe(regResult.user.id);
@@ -44,8 +44,8 @@ describe('属性测试：用户名唯一性约束', () => {
     fc.assert(
       fc.property(validUsername, validPassword, validPassword, (username, pw1, pw2) => {
         const db = makeDb();
-        register(username, pw1, db);
-        expect(() => register(username, pw2, db)).toThrow('用户名已被占用');
+        register(username, pw1, true, db);
+        expect(() => register(username, pw2, true, db)).toThrow('用户名已被占用');
       }),
       { numRuns: 50 }
     );
