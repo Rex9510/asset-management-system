@@ -54,7 +54,7 @@ function createApp() {
 async function registerAndGetToken(app: express.Express, username = 'testuser'): Promise<string> {
   const res = await request(app)
     .post('/api/auth/register')
-    .send({ username, password: 'pass123' });
+    .send({ username, password: 'pass123', agreedTerms: true });
   return res.body.token;
 }
 
@@ -160,6 +160,19 @@ describe('Deep Analysis Routes', () => {
       expect(res.body.conclusion).toBe('测试结论');
       expect(res.body.status).toBe('completed');
     });
+
+    it('should return 404 when report belongs to another user', async () => {
+      const userId = testDb.prepare('SELECT id FROM users WHERE username = ?').get('testuser') as { id: number };
+      const reportId = seedDeepReport(testDb, userId.id, '600000', 'completed');
+      const otherToken = await registerAndGetToken(app, 'otheruser');
+
+      const res = await request(app)
+        .get(`/api/analysis/deep/${reportId}`)
+        .set('Authorization', `Bearer ${otherToken}`);
+
+      expect(res.status).toBe(404);
+      expect(res.body.error.code).toBe('NOT_FOUND');
+    });
   });
 
   describe('GET /api/analysis/deep/history', () => {
@@ -206,6 +219,20 @@ describe('Deep Analysis Routes', () => {
       expect(res.status).toBe(200);
       expect(res.body.reports).toHaveLength(1);
       expect(res.body.reports[0].stockCode).toBe('600000');
+    });
+
+    it('should not include other users reports in history', async () => {
+      const userId = testDb.prepare('SELECT id FROM users WHERE username = ?').get('testuser') as { id: number };
+      seedDeepReport(testDb, userId.id, '600000');
+      const otherToken = await registerAndGetToken(app, 'historyother');
+
+      const res = await request(app)
+        .get('/api/analysis/deep/history')
+        .set('Authorization', `Bearer ${otherToken}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.reports).toEqual([]);
+      expect(res.body.total).toBe(0);
     });
   });
 });

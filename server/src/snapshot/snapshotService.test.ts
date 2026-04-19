@@ -7,6 +7,9 @@ import {
   getSectorDistribution,
   getStockPnl,
   getChartData,
+  countTradingDaysExclusiveBetween,
+  deleteSnapshotsViolatingBuyDate,
+  deleteSnapshotsOnNonTradingDays,
 } from './snapshotService';
 
 let testDb: Database.Database;
@@ -99,7 +102,7 @@ describe('takeSnapshot', () => {
     insertPosition(testDb, 1, '300001', '特锐德', 200, 15.0);
     insertMarketCache(testDb, '300001', 20.0);
 
-    takeSnapshot(1, '2024-06-01', testDb);
+    takeSnapshot(1, '2024-06-03', testDb);
 
     const snaps = getSnapshots(testDb, 1);
     expect(snaps).toHaveLength(2);
@@ -125,7 +128,7 @@ describe('takeSnapshot', () => {
     insertPosition(testDb, 1, '300001', '特锐德', 200, 15.0);
     insertMarketCache(testDb, '300001', 20.0);
 
-    takeSnapshot(1, '2024-06-01', testDb);
+    takeSnapshot(1, '2024-06-03', testDb);
 
     const snaps = getSnapshots(testDb, 1);
     expect(snaps).toHaveLength(1);
@@ -136,10 +139,10 @@ describe('takeSnapshot', () => {
     insertPosition(testDb, 1, '600000', '浦发银行', 100, 8.0);
     insertMarketCache(testDb, '600000', 10.0);
 
-    takeSnapshot(1, '2024-06-01', testDb);
+    takeSnapshot(1, '2024-06-03', testDb);
     // Update market price and re-run
     insertMarketCache(testDb, '600000', 12.0);
-    takeSnapshot(1, '2024-06-01', testDb);
+    takeSnapshot(1, '2024-06-03', testDb);
 
     const snaps = getSnapshots(testDb, 1);
     expect(snaps).toHaveLength(1);
@@ -148,7 +151,7 @@ describe('takeSnapshot', () => {
   });
 
   it('should do nothing when user has no positions', () => {
-    takeSnapshot(1, '2024-06-01', testDb);
+    takeSnapshot(1, '2024-06-03', testDb);
     const snaps = getSnapshots(testDb, 1);
     expect(snaps).toHaveLength(0);
   });
@@ -157,12 +160,71 @@ describe('takeSnapshot', () => {
     insertPosition(testDb, 1, '600000', '浦发银行', 100, 8.0, 'watching');
     insertMarketCache(testDb, '600000', 10.0);
 
-    takeSnapshot(1, '2024-06-01', testDb);
+    takeSnapshot(1, '2024-06-03', testDb);
     const snaps = getSnapshots(testDb, 1);
     expect(snaps).toHaveLength(0);
   });
+
+  it('should not snapshot holdings whose buy_date is after the snapshot date', () => {
+    insertPosition(testDb, 1, '601985', '中国核电', 100, 9.0);
+    insertMarketCache(testDb, '601985', 10.0);
+    testDb
+      .prepare(`UPDATE positions SET buy_date = ? WHERE user_id = 1 AND stock_code = '601985'`)
+      .run('2024-07-01');
+
+    takeSnapshot(1, '2024-06-03', testDb);
+    const snaps = getSnapshots(testDb, 1);
+    expect(snaps).toHaveLength(0);
+  });
+
+  it('should not write snapshots on Sunday (non-trading day)', () => {
+    insertPosition(testDb, 1, '600000', '浦发银行', 100, 8.0);
+    insertMarketCache(testDb, '600000', 10.0);
+    takeSnapshot(1, '2024-06-02', testDb);
+    expect(getSnapshots(testDb, 1)).toHaveLength(0);
+  });
 });
 
+describe('deleteSnapshotsOnNonTradingDays', () => {
+  beforeEach(() => {
+    insertUser(testDb, 1);
+    insertSnapshot(testDb, 1, '2024-06-02', '600000', '浦发银行', 100, 8, 10, '沪市主板');
+    insertSnapshot(testDb, 1, '2024-06-03', '600000', '浦发银行', 100, 8, 10, '沪市主板');
+  });
+
+  it('removes all rows on weekend dates but keeps trading days', () => {
+    const n = deleteSnapshotsOnNonTradingDays(testDb);
+    expect(n).toBe(1);
+    const dates = testDb
+      .prepare('SELECT DISTINCT snapshot_date FROM portfolio_snapshots WHERE user_id = 1')
+      .all() as { snapshot_date: string }[];
+    expect(dates.map((r) => r.snapshot_date)).toEqual(['2024-06-03']);
+  });
+});
+
+describe('deleteSnapshotsViolatingBuyDate', () => {
+  beforeEach(() => {
+    insertUser(testDb, 1);
+    testDb
+      .prepare(
+        `INSERT INTO positions (user_id, stock_code, stock_name, position_type, cost_price, shares, buy_date)
+         VALUES (1, '601985', '中国核电', 'holding', 9, 100, '2024-04-10')`
+      )
+      .run();
+    insertSnapshot(testDb, 1, '2024-04-01', '601985', '中国核电', 100, 9, 9.5, '沪市主板');
+    insertSnapshot(testDb, 1, '2024-04-10', '601985', '中国核电', 100, 9, 9.5, '沪市主板');
+    insertSnapshot(testDb, 1, '2024-04-12', '601985', '中国核电', 100, 9, 10, '沪市主板');
+  });
+
+  it('removes snapshots strictly before buy_date', () => {
+    const n = deleteSnapshotsViolatingBuyDate(testDb);
+    expect(n).toBe(1);
+    const rows = testDb
+      .prepare('SELECT snapshot_date FROM portfolio_snapshots WHERE user_id = 1 ORDER BY snapshot_date')
+      .all() as { snapshot_date: string }[];
+    expect(rows.map((r) => r.snapshot_date)).toEqual(['2024-04-10', '2024-04-12']);
+  });
+});
 
 // --- takeAllUsersSnapshot ---
 
@@ -177,7 +239,7 @@ describe('takeAllUsersSnapshot', () => {
     insertPosition(testDb, 2, '300001', '特锐德', 200, 15.0);
     insertMarketCache(testDb, '300001', 20.0);
 
-    takeAllUsersSnapshot('2024-06-01', testDb);
+    takeAllUsersSnapshot('2024-06-03', testDb);
 
     const snaps1 = getSnapshots(testDb, 1);
     const snaps2 = getSnapshots(testDb, 2);
@@ -188,7 +250,7 @@ describe('takeAllUsersSnapshot', () => {
   });
 
   it('should handle no users with positions', () => {
-    takeAllUsersSnapshot('2024-06-01', testDb);
+    takeAllUsersSnapshot('2024-06-03', testDb);
     const count = testDb.prepare('SELECT COUNT(*) as c FROM portfolio_snapshots').get() as { c: number };
     expect(count.c).toBe(0);
   });
@@ -223,10 +285,18 @@ describe('getProfitCurve', () => {
     expect(curve[0].date).toBe(date1);
     expect(curve[0].totalValue).toBe(5000);
     expect(curve[0].totalProfit).toBe(1200);
+    expect(curve[0].totalCost).toBe(3800);
+    expect(curve[0].returnOnCostPct).toBeCloseTo(31.58, 1);
+    expect(curve[0].dayMvChangePct).toBeNull();
+    expect(curve[0].dayProfitDelta).toBeNull();
     // Day 2: totalValue = 1100 + 3600 = 4700, totalProfit = 300 + 600 = 900
     expect(curve[1].date).toBe(date2);
     expect(curve[1].totalValue).toBe(4700);
     expect(curve[1].totalProfit).toBe(900);
+    expect(curve[1].totalCost).toBe(3800);
+    expect(curve[1].returnOnCostPct).toBeCloseTo(23.68, 1);
+    expect(curve[1].dayMvChangePct).toBeCloseTo(-6, 2); // (4700-5000)/5000*100
+    expect(curve[1].dayProfitDelta).toBe(-300);
   });
 
   it('should return empty array when no snapshots exist', () => {
@@ -336,6 +406,18 @@ describe('getStockPnl', () => {
   });
 });
 
+// --- countTradingDaysExclusiveBetween ---
+
+describe('countTradingDaysExclusiveBetween', () => {
+  it('is zero between adjacent calendar dates with no trading day strictly between', () => {
+    expect(countTradingDaysExclusiveBetween('2024-04-08', '2024-04-09')).toBe(0);
+  });
+
+  it('is positive across a week span', () => {
+    expect(countTradingDaysExclusiveBetween('2024-04-01', '2024-04-08')).toBeGreaterThan(0);
+  });
+});
+
 // --- getChartData ---
 
 describe('getChartData', () => {
@@ -349,6 +431,7 @@ describe('getChartData', () => {
     expect(data.profitCurve).toHaveLength(1);
     expect(data.sectorDistribution).toHaveLength(1);
     expect(data.stockPnl).toHaveLength(1);
+    expect(data.profitCurveMeta).toEqual({ hasCalendarGaps: false });
   });
 
   it('should return empty data for user with no snapshots', () => {
@@ -358,5 +441,23 @@ describe('getChartData', () => {
     expect(data.profitCurve).toHaveLength(0);
     expect(data.sectorDistribution).toHaveLength(0);
     expect(data.stockPnl).toHaveLength(0);
+    expect(data.profitCurveMeta).toEqual({ hasCalendarGaps: false });
+  });
+
+  it('marks hasCalendarGaps when snapshot dates skip trading days', () => {
+    insertUser(testDb, 1);
+    const late = new Date();
+    const early = new Date(late);
+    early.setDate(early.getDate() - 20);
+    const isoEarly = early.toISOString().slice(0, 10);
+    const isoLate = late.toISOString().slice(0, 10);
+    insertSnapshot(testDb, 1, isoEarly, '600000', '浦发银行', 100, 8, 10, '沪市主板');
+    insertSnapshot(testDb, 1, isoLate, '600000', '浦发银行', 100, 8, 11, '沪市主板');
+
+    const data = getChartData(1, '365d', testDb);
+    expect(data.profitCurve.length).toBeGreaterThanOrEqual(2);
+    if (countTradingDaysExclusiveBetween(isoEarly, isoLate) > 0) {
+      expect(data.profitCurveMeta?.hasCalendarGaps).toBe(true);
+    }
   });
 });

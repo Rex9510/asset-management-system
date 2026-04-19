@@ -3,7 +3,7 @@
  *
  * 纯规则引擎，零AI调用。
  * 底部信号检测（至少满足2项）：
- *   1. 价格处于近3年最低30%区间
+ *   1. 价格处于「自适应历史窗口」最低30%区间（最多约10年数据；窗口按谷值间距/品种先验/可用跨度因股而异）
  *   2. 成交量萎缩后放大（近5日均量 > 20日均量 且 20日均量 < 60日均量）
  *   3. RSI<30 或 MACD底背离（价格创新低但MACD柱不创新低）
  *
@@ -11,12 +11,13 @@
  *   - bottom: 2+底部信号触发
  *   - falling: 价格低于MA60，趋势下行
  *   - rising: 价格高于MA20和MA60，趋势上行
- *   - high: 价格处于近3年最高30%区间
+ *   - high: 价格处于同一自适应窗口内最高30%区间
  */
 import Database from 'better-sqlite3';
 import { getDatabase } from '../db/connection';
 import { calculateRSI, calculateMACD, calculateMA, calculateEMASeries } from '../indicators/indicatorService';
-import { ensureStockHistory } from '../market/historyService';
+import { fetchAndSaveStockHistory } from '../market/historyService';
+import { getQuote } from '../market/marketDataService';
 
 // --- Predefined cycle knowledge for common commodity/sector ETFs ---
 // 当历史数据不足以自动检测周期时，使用预定义的行业周期知识作为fallback
@@ -34,6 +35,18 @@ const ETF_NAME_TO_CODE: Record<string, string> = {
   '白银ETF': '161226', '有色ETF': '512400', '橡胶ETF': '159886',
   '原油ETF': '161129', '豆粕ETF': '159985',
 };
+
+/** 名称与 ETF_NAME_TO_CODE 键大小写不一致时（如「煤炭etf」）仍能解析到 6 位代码 */
+function matchPredefinedEtf(input: string): { code: string; canonicalName: string } | undefined {
+  const trimmed = input.trim();
+  if (ETF_NAME_TO_CODE[trimmed]) {
+    return { code: ETF_NAME_TO_CODE[trimmed], canonicalName: trimmed };
+  }
+  const lower = trimmed.toLowerCase();
+  const key = Object.keys(ETF_NAME_TO_CODE).find((k) => k.toLowerCase() === lower);
+  if (key) return { code: ETF_NAME_TO_CODE[key], canonicalName: key };
+  return undefined;
+}
 
 const PREDEFINED_CYCLES: Record<string, PredefinedCycle> = {
   '159985': { cycleLength: '一轮周期约6年（涨2年→跌2年→横2年）', phases: '涨2年→跌2年→横2年', avgCycleYears: 6 },
@@ -73,6 +86,13 @@ export interface BottomSignalResult {
   description: string;
   cycleLength: string | null;
   currentPhase: string | null;
+  /** 本次判定使用的历史区间跨度（年，约 0.5 年粒度），因标的与数据更新而变化 */
+  analysisWindowYears: number | null;
+  /** 分析窗口内收盘最低价、最高价 */
+  rangeMin: number | null;
+  rangeMax: number | null;
+  /** 分析窗口末根 K 线收盘价，用于消息摘要 */
+  anchorPrice: number | null;
 }
 
 interface MarketHistoryRow {
@@ -81,6 +101,11 @@ interface MarketHistoryRow {
   high_price: number;
   low_price: number;
   volume: number;
+}
+
+interface HistoryPriceRow {
+  trade_date: string;
+  close_price: number;
 }
 
 // --- Helpers ---
@@ -139,15 +164,105 @@ function toResponse(row: any, db: Database.Database): CycleMonitor {
   };
 }
 
+function upsertMarketCache(
+  stockCode: string,
+  stockName: string,
+  price: number,
+  changePercent: number,
+  volume: number | null,
+  updatedAt: string,
+  db: Database.Database
+): void {
+  db.prepare(
+    `INSERT OR REPLACE INTO market_cache (stock_code, stock_name, price, change_percent, volume, updated_at)
+     VALUES (?, ?, ?, ?, COALESCE(?, (SELECT volume FROM market_cache WHERE stock_code = ?), 0), ?)`
+  ).run(stockCode, stockName, price, changePercent, volume ?? null, stockCode, updatedAt);
+}
+
+function fallbackPriceFromHistory(
+  stockCode: string,
+  stockName: string,
+  db: Database.Database
+): { stockName: string; price: number; changePercent: number; updatedAt: string } | null {
+  const latestRows = db.prepare(
+    `SELECT trade_date, close_price
+     FROM market_history
+     WHERE stock_code = ?
+     ORDER BY trade_date DESC
+     LIMIT 2`
+  ).all(stockCode) as HistoryPriceRow[];
+
+  if (latestRows.length === 0) return null;
+
+  const latest = latestRows[0];
+  const prev = latestRows[1];
+  const changePercent =
+    prev && prev.close_price > 0
+      ? ((latest.close_price - prev.close_price) / prev.close_price) * 100
+      : 0;
+
+  const cachedName = db.prepare(
+    'SELECT stock_name FROM market_cache WHERE stock_code = ?'
+  ).get(stockCode) as { stock_name: string } | undefined;
+
+  return {
+    stockName: cachedName?.stock_name || stockName || stockCode,
+    price: latest.close_price,
+    changePercent,
+    // 使用最后一个交易日的收盘时间作为更新时间，便于前端识别是最近有效交易日价格
+    updatedAt: `${latest.trade_date}T15:00:00.000+08:00`,
+  };
+}
+
+async function refreshSingleMonitorPrice(
+  stockCode: string,
+  stockName: string,
+  db: Database.Database
+): Promise<void> {
+  try {
+    const quote = await getQuote(stockCode, db);
+    upsertMarketCache(
+      quote.stockCode,
+      quote.stockName || stockName || quote.stockCode,
+      quote.price,
+      quote.changePercent,
+      quote.volume,
+      quote.timestamp,
+      db
+    );
+    return;
+  } catch {
+    // 行情接口不可用或非交易时段，回退到最近交易日收盘价
+  }
+
+  const fallback = fallbackPriceFromHistory(stockCode, stockName, db);
+  if (!fallback) return;
+  upsertMarketCache(
+    stockCode,
+    fallback.stockName,
+    fallback.price,
+    fallback.changePercent,
+    null,
+    fallback.updatedAt,
+    db
+  );
+}
+
 // --- Core detection functions ---
 
+const MAX_HISTORY_YEARS = 10;
+
 /**
- * Get 3-year market history for a stock (sorted ASC by date).
+ * 取最近 `years` 个日历年内的行情（升序）。用于固定窗口或兼容旧逻辑。
  */
-export function get3YearHistory(stockCode: string, db: Database.Database): MarketHistoryRow[] {
-  const threeYearsAgo = new Date();
-  threeYearsAgo.setFullYear(threeYearsAgo.getFullYear() - 3);
-  const startDate = threeYearsAgo.toISOString().slice(0, 10);
+export function getMarketHistoryLastYears(
+  stockCode: string,
+  db: Database.Database,
+  years: number
+): MarketHistoryRow[] {
+  const d = new Date();
+  d.setFullYear(d.getFullYear() - years);
+  const startDate = d.toISOString().slice(0, 10);
 
   return db.prepare(
     `SELECT trade_date, close_price, high_price, low_price, volume
@@ -157,8 +272,127 @@ export function get3YearHistory(stockCode: string, db: Database.Database): Marke
 }
 
 /**
- * Signal 1: Price in lowest 30% of 3-year range.
- * (currentPrice - min3y) / (max3y - min3y) <= 0.3
+ * Get 3-year market history for a stock (sorted ASC by date).
+ * @deprecated 新逻辑请用 getMarketHistoryLastYears(..., 10) + 自适应窗口；保留供测试与兼容。
+ */
+export function get3YearHistory(stockCode: string, db: Database.Database): MarketHistoryRow[] {
+  return getMarketHistoryLastYears(stockCode, db, 3);
+}
+
+/** 从首末根 K 线推算覆盖年数，并与按根数估算的年数取较大值，上限 MAX_HISTORY_YEARS */
+function calendarSpanYears(history: MarketHistoryRow[]): number {
+  if (history.length === 0) return 0;
+  const firstMs = new Date(`${history[0].trade_date}T12:00:00`).getTime();
+  const lastMs = new Date(`${history[history.length - 1].trade_date}T12:00:00`).getTime();
+  const calYears = (lastMs - firstMs) / (365.25 * 86400e3);
+  const barYears = history.length / 250;
+  const span = Math.max(calYears, barYears * 0.98);
+  return Math.min(MAX_HISTORY_YEARS, Math.max(span, 1 / 250));
+}
+
+/** 谷值间距（交易日）均值；不足两个谷或数据太短则 null */
+function getAverageTroughSpacingDays(history: MarketHistoryRow[]): number | null {
+  if (history.length < 250) return null;
+  const closes = history.map(r => r.close_price);
+  const troughIndices: number[] = [];
+  const windowSize = 60;
+
+  for (let i = windowSize; i < closes.length - windowSize; i++) {
+    const windowBefore = closes.slice(i - windowSize, i);
+    const windowAfter = closes.slice(i + 1, i + windowSize + 1);
+    const minBefore = Math.min(...windowBefore);
+    const minAfter = Math.min(...windowAfter);
+
+    if (closes[i] <= minBefore && closes[i] <= minAfter) {
+      if (troughIndices.length === 0 || i - troughIndices[troughIndices.length - 1] >= 120) {
+        troughIndices.push(i);
+      }
+    }
+  }
+
+  if (troughIndices.length < 2) return null;
+  const cycleLengths: number[] = [];
+  for (let i = 1; i < troughIndices.length; i++) {
+    cycleLengths.push(troughIndices[i] - troughIndices[i - 1]);
+  }
+  return cycleLengths.reduce((s, v) => s + v, 0) / cycleLengths.length;
+}
+
+/**
+ * 根据谷值周期 / 品种先验 / 可用数据跨度，确定用于分位与均线判定的目标年数（不含超过库内 span 的裁剪，在调用方做 min）。
+ */
+function resolveTargetWindowYears(
+  fullHistory: MarketHistoryRow[],
+  stockCode: string,
+  span: number
+): number {
+  if (span <= 0) return 3;
+  const spacingDays = getAverageTroughSpacingDays(fullHistory);
+  const troughYears = spacingDays != null ? spacingDays / 250 : null;
+  const presetYears = PREDEFINED_CYCLES[stockCode]?.avgCycleYears ?? null;
+
+  if (troughYears != null && troughYears >= 0.35) {
+    const rooted = Math.max(Math.min(2.5, span), 1.85 * troughYears);
+    return Math.min(MAX_HISTORY_YEARS, rooted);
+  }
+  if (presetYears != null) {
+    const rooted = Math.max(Math.min(2.5, span), 1.85 * presetYears);
+    return Math.min(MAX_HISTORY_YEARS, rooted);
+  }
+  return Math.min(MAX_HISTORY_YEARS, span);
+}
+
+function sliceHistoryByYears(historyAsc: MarketHistoryRow[], years: number): MarketHistoryRow[] {
+  if (historyAsc.length === 0 || years <= 0) return historyAsc;
+  const last = historyAsc[historyAsc.length - 1].trade_date;
+  const lastMs = new Date(`${last}T12:00:00`).getTime();
+  if (!Number.isFinite(lastMs)) return historyAsc;
+  const cutoffMs = lastMs - years * 365.25 * 86400e3;
+  if (!Number.isFinite(cutoffMs)) return historyAsc;
+  const cutoffStr = new Date(cutoffMs).toISOString().slice(0, 10);
+  return historyAsc.filter((r) => r.trade_date >= cutoffStr);
+}
+
+function formatAnalysisYearsLabel(years: number): string {
+  const rounded = Math.round(years * 2) / 2;
+  if (Math.abs(rounded - Math.round(rounded)) < 0.05) return String(Math.round(rounded));
+  return rounded.toFixed(1).replace(/\.0$/, '');
+}
+
+/**
+ * 在最多 10 年全量序列上，裁剪出本次分析用的窗口，并给出用于文案的年数标签。
+ */
+export function pickAdaptiveAnalysisWindow(
+  fullHistory: MarketHistoryRow[],
+  stockCode: string
+): { windowHistory: MarketHistoryRow[]; labelYears: number | null; targetYears: number } {
+  if (fullHistory.length === 0) {
+    return { windowHistory: [], labelYears: null, targetYears: 0 };
+  }
+
+  const span = calendarSpanYears(fullHistory);
+  const targetYears = resolveTargetWindowYears(fullHistory, stockCode, span);
+  const cappedTarget = Math.min(targetYears, span);
+  let windowHistory = sliceHistoryByYears(fullHistory, cappedTarget);
+
+  if (windowHistory.length < 20 && fullHistory.length >= 20) {
+    windowHistory = fullHistory.slice(-Math.min(fullHistory.length, 500));
+  }
+
+  const labelSpan = calendarSpanYears(windowHistory);
+  const labelYears = labelSpan > 0 ? Math.round(labelSpan * 2) / 2 : null;
+
+  return { windowHistory, labelYears, targetYears: cappedTarget };
+}
+
+export function formatPriceLowSignalText(labelYears: number | null): string {
+  const label = labelYears != null && labelYears > 0 ? formatAnalysisYearsLabel(labelYears) : '历史';
+  return `价格处于近${label}年最低30%区间`;
+}
+
+/**
+ * Signal 1: Price in lowest 30% of the analysis window range.
+ * (currentPrice - min) / (max - min) <= 0.3
  */
 export function checkPriceLow30(history: MarketHistoryRow[]): boolean {
   if (history.length < 20) return false;
@@ -279,7 +513,7 @@ export function determineStatus(history: MarketHistoryRow[], signals: string[]):
   const max3y = Math.max(...closes);
   const range = max3y - min3y;
 
-  // High: price in top 30% of 3-year range
+  // High: price in top 30% of analysis window range
   if (range > 0 && (currentPrice - min3y) / range >= 0.7) return 'high';
 
   const ma20 = calculateMA(closes, 20);
@@ -299,37 +533,11 @@ export function determineStatus(history: MarketHistoryRow[], signals: string[]):
  * Looks for price troughs to estimate cycle period.
  */
 export function estimateCycleLength(history: MarketHistoryRow[], stockCode?: string): string | null {
-  // 先尝试自动检测
-  if (history.length >= 250) {
-    const closes = history.map(r => r.close_price);
-
-    // Find local minima (troughs) using a 60-day window
-    const troughIndices: number[] = [];
-    const windowSize = 60;
-
-    for (let i = windowSize; i < closes.length - windowSize; i++) {
-      const windowBefore = closes.slice(i - windowSize, i);
-      const windowAfter = closes.slice(i + 1, i + windowSize + 1);
-      const minBefore = Math.min(...windowBefore);
-      const minAfter = Math.min(...windowAfter);
-
-      if (closes[i] <= minBefore && closes[i] <= minAfter) {
-        if (troughIndices.length === 0 || i - troughIndices[troughIndices.length - 1] >= 120) {
-          troughIndices.push(i);
-        }
-      }
-    }
-
-    if (troughIndices.length >= 2) {
-      const cycleLengths: number[] = [];
-      for (let i = 1; i < troughIndices.length; i++) {
-        cycleLengths.push(troughIndices[i] - troughIndices[i - 1]);
-      }
-      const avgDays = cycleLengths.reduce((s, v) => s + v, 0) / cycleLengths.length;
-      const avgYears = avgDays / 250;
-      if (avgYears < 1) return `约${Math.round(avgDays / 20)}个月`;
-      return `约${Math.round(avgYears)}年`;
-    }
+  const avgDays = getAverageTroughSpacingDays(history);
+  if (avgDays != null) {
+    const avgYears = avgDays / 250;
+    if (avgYears < 1) return `约${Math.round(avgDays / 20)}个月`;
+    return `约${Math.round(avgYears)}年`;
   }
 
   // Fallback: 使用预定义周期知识
@@ -349,7 +557,8 @@ export function generateDescription(
   status: CycleStatus,
   cycleLength: string | null,
   signals: string[],
-  stockCode?: string
+  stockCode?: string,
+  analysisWindowYears?: number | null
 ): string {
   if (history.length < 20) {
     // 即使历史数据不足，如果有预定义周期知识也给出描述
@@ -449,19 +658,25 @@ export function generateDescription(
 
   const signalPart = signals.length > 0 ? `。触发信号：${signals.join('、')}` : '';
 
-  return parts.join('，') + signalPart;
+  const windowHint =
+    analysisWindowYears != null && analysisWindowYears > 0
+      ? `参考约${formatAnalysisYearsLabel(analysisWindowYears)}年历史区间。`
+      : '';
+
+  return windowHint + parts.join('，') + signalPart;
 }
 
 /**
  * Run full bottom signal detection for a stock.
  */
 export function detectBottomSignals(stockCode: string, db: Database.Database): BottomSignalResult {
-  const history = get3YearHistory(stockCode, db);
+  const fullHistory = getMarketHistoryLastYears(stockCode, db, MAX_HISTORY_YEARS);
+  const { windowHistory: history, labelYears } = pickAdaptiveAnalysisWindow(fullHistory, stockCode);
 
   const signals: string[] = [];
 
   if (history.length >= 20 && checkPriceLow30(history)) {
-    signals.push('价格处于近3年最低30%区间');
+    signals.push(formatPriceLowSignalText(labelYears));
   }
 
   if (history.length >= 60 && checkVolumeShrinkExpand(history)) {
@@ -480,13 +695,33 @@ export function detectBottomSignals(stockCode: string, db: Database.Database): B
   }
 
   const status = determineStatus(history, signals);
-  const cycleLength = estimateCycleLength(history, stockCode);
+  const cycleLength = estimateCycleLength(fullHistory, stockCode);
   const currentPhase = status === 'bottom' ? '底部区域' :
     status === 'falling' ? '下行阶段' :
     status === 'rising' ? '上行阶段' : '高位区域';
-  const description = generateDescription(history, status, cycleLength, signals, stockCode);
+  const description = generateDescription(history, status, cycleLength, signals, stockCode, labelYears);
 
-  return { signals, status, description, cycleLength, currentPhase };
+  let rangeMin: number | null = null;
+  let rangeMax: number | null = null;
+  let anchorPrice: number | null = null;
+  if (history.length > 0) {
+    const closes = history.map(r => r.close_price);
+    rangeMin = Math.min(...closes);
+    rangeMax = Math.max(...closes);
+    anchorPrice = closes[closes.length - 1];
+  }
+
+  return {
+    signals,
+    status,
+    description,
+    cycleLength,
+    currentPhase,
+    analysisWindowYears: labelYears,
+    rangeMin,
+    rangeMax,
+    anchorPrice,
+  };
 }
 
 // --- CRUD operations ---
@@ -508,19 +743,22 @@ export function getMonitors(userId: number, db?: Database.Database): CycleMonito
 export async function addMonitor(
   userId: number,
   stockCode: string,
-  db?: Database.Database
+  db?: Database.Database,
+  /** 前端从搜索选中传入的中文名；纯代码添加时东财 f58 可能为空，避免落库成「代码当名称」 */
+  preferredStockName?: string | null
 ): Promise<CycleMonitor> {
   const database = db || getDatabase();
 
   // 支持用户输入名称或代码：如果输入不是纯数字，尝试反查代码
-  let resolvedCode = stockCode;
-  let stockName = stockCode;
+  let resolvedCode = stockCode.trim();
+  const preferred = (preferredStockName && preferredStockName.trim()) || '';
+  let stockName = preferred || resolvedCode;
 
-  if (!/^\d{6}$/.test(stockCode)) {
+  if (!/^\d{6}$/.test(resolvedCode)) {
     // 输入的可能是名称，反查代码
     const byName = database.prepare(
       'SELECT stock_code, stock_name FROM market_cache WHERE stock_name = ? LIMIT 1'
-    ).get(stockCode) as { stock_code: string; stock_name: string } | undefined;
+    ).get(resolvedCode) as { stock_code: string; stock_name: string } | undefined;
     if (byName) {
       resolvedCode = byName.stock_code;
       stockName = byName.stock_name;
@@ -531,9 +769,12 @@ export async function addMonitor(
       if (hs300ByName) {
         resolvedCode = hs300ByName.stock_code;
         stockName = hs300ByName.stock_name;
-      } else if (ETF_NAME_TO_CODE[stockCode]) {
-        resolvedCode = ETF_NAME_TO_CODE[stockCode];
-        stockName = stockCode;
+      } else {
+        const etf = matchPredefinedEtf(resolvedCode);
+        if (etf) {
+          resolvedCode = etf.code;
+          stockName = etf.canonicalName;
+        }
       }
     }
   }
@@ -548,25 +789,44 @@ export async function addMonitor(
     return toResponse(row, database);
   }
 
-  // Resolve stock name (if we haven't already from name lookup)
-  if (stockName === stockCode && /^\d{6}$/.test(resolvedCode)) {
-    const cached = database.prepare(
-      'SELECT stock_name FROM market_cache WHERE stock_code = ?'
-    ).get(resolvedCode) as { stock_name: string } | undefined;
-    if (cached) {
-      stockName = cached.stock_name;
-    } else {
-      const hs300 = database.prepare(
-        'SELECT stock_name FROM hs300_constituents WHERE stock_code = ?'
+  // 六位代码且未带前端名称时，用本地缓存/沪深300 补全名称
+  if (/^\d{6}$/.test(resolvedCode) && !preferred) {
+    if (stockName === resolvedCode) {
+      const cached = database.prepare(
+        'SELECT stock_name FROM market_cache WHERE stock_code = ?'
       ).get(resolvedCode) as { stock_name: string } | undefined;
-      if (hs300) stockName = hs300.stock_name;
+      if (cached) {
+        stockName = cached.stock_name;
+      } else {
+        const hs300 = database.prepare(
+          'SELECT stock_name FROM hs300_constituents WHERE stock_code = ?'
+        ).get(resolvedCode) as { stock_name: string } | undefined;
+        if (hs300) stockName = hs300.stock_name;
+      }
     }
   }
 
-  // 确保有足够的历史数据（周期检测需要3年）
+  // 添加时同步拉取近10年日K并落库，再跑周期判断（检测逻辑依赖 market_history，至少需约20个交易日）
   try {
-    await ensureStockHistory(resolvedCode, database);
-  } catch { /* 拉取失败不阻塞添加 */ }
+    await fetchAndSaveStockHistory(resolvedCode, 10, database);
+  } catch {
+    /* 拉取失败仍允许添加，detectBottomSignals 会按已有数据给出说明 */
+  }
+
+  // 添加后立即刷新价格，接口失败时使用最近交易日收盘价回退
+  try {
+    await refreshSingleMonitorPrice(resolvedCode, stockName, database);
+  } catch { /* 不阻塞添加流程 */ }
+
+  // 未带前端名称时，行情写入 market_cache 后可能才有正确简称（东财部分 ETF 无 f58）
+  if (!preferred) {
+    const after = database.prepare(
+      'SELECT stock_name FROM market_cache WHERE stock_code = ?'
+    ).get(resolvedCode) as { stock_name: string } | undefined;
+    if (after?.stock_name && after.stock_name !== resolvedCode) {
+      stockName = after.stock_name;
+    }
+  }
 
   // Run initial detection
   const result = detectBottomSignals(resolvedCode, database);
@@ -612,6 +872,7 @@ function createBottomMessages(
   signals: string[],
   min3y: number,
   max3y: number,
+  analysisWindowYears: number | null,
   userIds: number[],
   db: Database.Database
 ): void {
@@ -627,6 +888,7 @@ function createBottomMessages(
     bottomRange,
     min3y,
     max3y,
+    analysisWindowYears,
   });
   const now = new Date().toISOString();
 
@@ -650,11 +912,33 @@ function createBottomMessages(
  * 修复 cycle_monitors 中 stock_code 存了名称而非代码的记录。
  * 启动时调用一次。
  */
+function applyResolvedMonitorCode(
+  database: Database.Database,
+  monitorId: number,
+  userId: number,
+  oldLabel: string,
+  newCode: string,
+  newName: string,
+  logLine: string
+): void {
+  const dup = database.prepare(
+    `SELECT id FROM cycle_monitors WHERE user_id = ? AND stock_code = ? AND id != ?`
+  ).get(userId, newCode, monitorId) as { id: number } | undefined;
+  if (dup) {
+    database.prepare('DELETE FROM cycle_monitors WHERE id = ?').run(monitorId);
+    console.log(`  修复周期监控: 删除重复项 "${oldLabel}"（用户已有 ${newCode}）`);
+    return;
+  }
+  database.prepare('UPDATE cycle_monitors SET stock_code = ?, stock_name = ? WHERE id = ?')
+    .run(newCode, newName, monitorId);
+  console.log(logLine);
+}
+
 export function fixBrokenMonitorCodes(db?: Database.Database): void {
   const database = db || getDatabase();
   const monitors = database.prepare(
-    `SELECT id, stock_code, stock_name FROM cycle_monitors WHERE stock_code NOT GLOB '[0-9][0-9][0-9][0-9][0-9][0-9]'`
-  ).all() as { id: number; stock_code: string; stock_name: string }[];
+    `SELECT id, user_id, stock_code, stock_name FROM cycle_monitors WHERE stock_code NOT GLOB '[0-9][0-9][0-9][0-9][0-9][0-9]'`
+  ).all() as { id: number; user_id: number; stock_code: string; stock_name: string }[];
 
   for (const m of monitors) {
     // 尝试从 market_cache 或 hs300_constituents 反查代码
@@ -663,25 +947,45 @@ export function fixBrokenMonitorCodes(db?: Database.Database): void {
     ).get(m.stock_code) as { stock_code: string; stock_name: string } | undefined;
 
     if (byName) {
-      database.prepare('UPDATE cycle_monitors SET stock_code = ?, stock_name = ? WHERE id = ?')
-        .run(byName.stock_code, byName.stock_name, m.id);
-      console.log(`  修复周期监控: "${m.stock_code}" → ${byName.stock_code}(${byName.stock_name})`);
+      applyResolvedMonitorCode(
+        database,
+        m.id,
+        m.user_id,
+        m.stock_code,
+        byName.stock_code,
+        byName.stock_name,
+        `  修复周期监控: "${m.stock_code}" → ${byName.stock_code}(${byName.stock_name})`
+      );
     } else {
       const hs300 = database.prepare(
         'SELECT stock_code, stock_name FROM hs300_constituents WHERE stock_name = ? LIMIT 1'
       ).get(m.stock_code) as { stock_code: string; stock_name: string } | undefined;
       if (hs300) {
-        database.prepare('UPDATE cycle_monitors SET stock_code = ?, stock_name = ? WHERE id = ?')
-          .run(hs300.stock_code, hs300.stock_name, m.id);
-        console.log(`  修复周期监控: "${m.stock_code}" → ${hs300.stock_code}(${hs300.stock_name})`);
-      } else if (ETF_NAME_TO_CODE[m.stock_code]) {
-        const code = ETF_NAME_TO_CODE[m.stock_code];
-        database.prepare('UPDATE cycle_monitors SET stock_code = ?, stock_name = ? WHERE id = ?')
-          .run(code, m.stock_code, m.id);
-        console.log(`  修复周期监控(ETF映射): "${m.stock_code}" → ${code}(${m.stock_code})`);
+        applyResolvedMonitorCode(
+          database,
+          m.id,
+          m.user_id,
+          m.stock_code,
+          hs300.stock_code,
+          hs300.stock_name,
+          `  修复周期监控: "${m.stock_code}" → ${hs300.stock_code}(${hs300.stock_name})`
+        );
       } else {
-        console.log(`  无法修复周期监控: "${m.stock_code}" — 未找到对应代码，删除该记录`);
-        database.prepare('DELETE FROM cycle_monitors WHERE id = ?').run(m.id);
+        const etf = matchPredefinedEtf(m.stock_code);
+        if (etf) {
+          applyResolvedMonitorCode(
+            database,
+            m.id,
+            m.user_id,
+            m.stock_code,
+            etf.code,
+            etf.canonicalName,
+            `  修复周期监控(ETF映射): "${m.stock_code}" → ${etf.code}(${etf.canonicalName})`
+          );
+        } else {
+          console.log(`  无法修复周期监控: "${m.stock_code}" — 未找到对应代码，删除该记录`);
+          database.prepare('DELETE FROM cycle_monitors WHERE id = ?').run(m.id);
+        }
       }
     }
   }
@@ -739,21 +1043,47 @@ export function updateAllMonitors(db?: Database.Database): void {
       updateAll();
 
       // Create bottom messages if newly triggered
-      if (usersToNotify.length > 0) {
-        const history = get3YearHistory(stock_code, database);
-        if (history.length > 0) {
-          const closes = history.map(r => r.close_price);
-          const currentPrice = closes[closes.length - 1];
-          const min3y = Math.min(...closes);
-          const max3y = Math.max(...closes);
-          createBottomMessages(
-            stock_code, stockName, currentPrice,
-            result.signals, min3y, max3y, usersToNotify, database
-          );
-        }
+      if (
+        usersToNotify.length > 0 &&
+        result.anchorPrice != null &&
+        result.rangeMin != null &&
+        result.rangeMax != null
+      ) {
+        createBottomMessages(
+          stock_code,
+          stockName,
+          result.anchorPrice,
+          result.signals,
+          result.rangeMin,
+          result.rangeMax,
+          result.analysisWindowYears,
+          usersToNotify,
+          database
+        );
       }
     } catch {
       // Single stock failure doesn't affect others
+    }
+  }
+}
+
+/**
+ * Refresh latest prices for all monitored stocks.
+ * Priority: live quote -> fallback to last trading-day close from history.
+ */
+export async function refreshAllMonitorPrices(db?: Database.Database): Promise<void> {
+  const database = db || getDatabase();
+  const stocks = database.prepare(
+    `SELECT DISTINCT stock_code, stock_name FROM cycle_monitors`
+  ).all() as { stock_code: string; stock_name: string }[];
+
+  for (const stock of stocks) {
+    // 仅处理合法6位代码，脏数据由 fixBrokenMonitorCodes 清理
+    if (!/^\d{6}$/.test(stock.stock_code)) continue;
+    try {
+      await refreshSingleMonitorPrice(stock.stock_code, stock.stock_name, database);
+    } catch {
+      // 单只失败不影响整体刷新
     }
   }
 }

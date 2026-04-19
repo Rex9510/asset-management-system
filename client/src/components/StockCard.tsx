@@ -52,8 +52,18 @@ const StockCard: React.FC<StockCardProps> = ({ position, onEdit, onRemoved }) =>
 
   const isHolding = position.positionType === 'holding';
   const priceColor = getPriceColor(position.profitLossPercent ?? 0);
-  const changeColor = getPriceColor(position.currentPrice != null && position.costPrice != null
-    ? position.currentPrice - position.costPrice : 0);
+  const hasCostBasis =
+    isHolding &&
+    position.currentPrice != null &&
+    position.costPrice != null;
+  /** 头部现价颜色：持仓用相对成本盈亏；关注用当日涨跌 */
+  const headerPriceTint = hasCostBasis
+    ? getPriceColor(position.profitLossPercent ?? 0)
+    : getPriceColor(position.changePercent ?? 0);
+  const showHeaderChangeTag =
+    position.currentPrice != null &&
+    (hasCostBasis ? position.profitLossPercent != null : position.changePercent != null);
+  const headerTagPercent = hasCostBasis ? position.profitLossPercent : position.changePercent;
 
   useEffect(() => {
     let cancelled = false;
@@ -139,12 +149,12 @@ const StockCard: React.FC<StockCardProps> = ({ position, onEdit, onRemoved }) =>
           <span style={styles.stockCode}>{position.stockCode}</span>
         </div>
         <div style={styles.priceGroup}>
-          <span style={{ ...styles.currentPrice, color: changeColor }}>
+          <span style={{ ...styles.currentPrice, color: headerPriceTint }}>
             {position.currentPrice != null ? position.currentPrice.toLocaleString('zh-CN', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '--'}
           </span>
-          {position.currentPrice != null && position.costPrice != null && isHolding && (
-            <span style={{ ...styles.changeTag, background: changeColor === '#ff4757' ? 'rgba(255,71,87,0.1)' : changeColor === '#2ed573' ? 'rgba(46,213,115,0.1)' : 'rgba(0,0,0,0.05)', color: changeColor }}>
-              {formatPercent(position.profitLossPercent)}
+          {showHeaderChangeTag && headerTagPercent != null && (
+            <span style={{ ...styles.changeTag, background: headerPriceTint === '#ff4757' ? 'rgba(255,71,87,0.1)' : headerPriceTint === '#2ed573' ? 'rgba(46,213,115,0.1)' : 'rgba(0,0,0,0.05)', color: headerPriceTint }}>
+              {formatPercent(headerTagPercent)}
             </span>
           )}
         </div>

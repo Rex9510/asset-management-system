@@ -1,4 +1,5 @@
-import React, { useEffect, useState, useRef, useMemo } from 'react';
+import React, { useEffect, useState, useRef, useMemo, useCallback } from 'react';
+import { useLocation } from 'react-router-dom';
 import { getPositions, Position } from '../api/positions';
 import { getDailyPicks, DailyPickMessage } from '../api/messages';
 import { useMarketSSE } from '../hooks/useMarketSSE';
@@ -11,17 +12,42 @@ import DailyPickCard from '../components/DailyPickCard';
 import CycleMonitor from '../components/CycleMonitor';
 
 const DashboardPage: React.FC = () => {
+  const { pathname } = useLocation();
   const [positions, setPositions] = useState<Position[]>([]);
   const [dailyPicks, setDailyPicks] = useState<DailyPickMessage[]>([]);
   const stickyRef = useRef<HTMLDivElement>(null);
   const [stickyVisible, setStickyVisible] = useState(true);
   const stockCodes = useMemo(() => positions.map(p => p.stockCode), [positions]);
-  const { quotes } = useMarketSSE(stockCodes);
+  const { quotes, refreshQuotes } = useMarketSSE(stockCodes);
+
+  const loadDashboard = useCallback(async () => {
+    try {
+      const [pos, picks] = await Promise.all([
+        getPositions('holding'),
+        getDailyPicks(),
+      ]);
+      setPositions(pos);
+      setDailyPicks(picks);
+      await refreshQuotes(pos.map((p) => p.stockCode));
+    } catch {
+      /* 全局拦截或静默 */
+    }
+  }, [refreshQuotes]);
 
   useEffect(() => {
-    getPositions('holding').then(setPositions).catch(() => {});
-    getDailyPicks().then(setDailyPicks).catch(() => {});
-  }, []);
+    if (pathname !== '/dashboard') return;
+    loadDashboard();
+  }, [pathname, loadDashboard]);
+
+  useEffect(() => {
+    const onNav = (e: Event) => {
+      const tab = (e as CustomEvent<{ tab: string }>).detail?.tab;
+      if (tab !== 'dashboard') return;
+      loadDashboard();
+    };
+    window.addEventListener('tab-switch-refresh', onNav);
+    return () => window.removeEventListener('tab-switch-refresh', onNav);
+  }, [loadDashboard]);
 
   useEffect(() => {
     const el = stickyRef.current;

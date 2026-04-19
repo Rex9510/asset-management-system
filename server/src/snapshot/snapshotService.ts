@@ -1,14 +1,33 @@
 import Database from 'better-sqlite3';
 import { getDatabase } from '../db/connection';
 import { getSectorFromCode } from '../concentration/concentrationService';
-import { isTradingDay } from '../scheduler/tradingDayGuard';
+import { isTradingDay, isTradingDayIsoDate } from '../scheduler/tradingDayGuard';
 
 // --- Types ---
 
 export interface ProfitCurvePoint {
   date: string;
+  /** 当日持仓总市值 */
   totalValue: number;
+  /** 相对成本的浮动盈亏合计（元） */
   totalProfit: number;
+  /** 当日持仓总成本 Σ(份额×成本价) */
+  totalCost: number;
+  /**
+   * 持仓加权收益率（%）= totalProfit / totalCost × 100。
+   * 用于汇总卡片（相对成本的整体浮盈比例），非「单日涨跌」。
+   */
+  returnOnCostPct: number;
+  /**
+   * 较上一快照日总市值涨跌（%）= (当日总市值 − 昨日总市值) / 昨日总市值 × 100。
+   * 区间首日为 null（无上一日对比）；有加仓/减仓时市值涨跌会含仓位变动影响。
+   */
+  dayMvChangePct: number | null;
+  /**
+   * 较上一快照日浮动盈亏增减（元）= 当日 totalProfit − 昨日 totalProfit。
+   * 区间首日为 null。
+   */
+  dayProfitDelta: number | null;
 }
 
 export interface SectorDistItem {
@@ -24,10 +43,20 @@ export interface StockPnlItem {
   marketValue: number;
 }
 
+/** 收益曲线辅助信息（与券商 App 对账时可参考） */
+export interface ProfitCurveMeta {
+  /**
+   * 相邻两条快照之间是否存在「中间应有交易日却缺快照」。
+   * 为 true 时，日历格内金额为跨多日合并涨跌，与券商逐日口径易不一致。
+   */
+  hasCalendarGaps: boolean;
+}
+
 export interface ChartData {
   profitCurve: ProfitCurvePoint[];
   sectorDistribution: SectorDistItem[];
   stockPnl: StockPnlItem[];
+  profitCurveMeta?: ProfitCurveMeta;
 }
 
 interface HoldingRow {
@@ -35,6 +64,16 @@ interface HoldingRow {
   stock_name: string;
   shares: number;
   cost_price: number;
+  /** 建仓日；历史补录时仅纳入 buy_date <= 快照日的持仓，避免「晚录入」污染更早曲线 */
+  buy_date: string | null;
+}
+
+/** ISO 日期字符串比较：仅纳入在 snapshotDate 当日或之前已持有的仓位 */
+function filterPositionsForSnapshotDate(positions: HoldingRow[], snapshotDate: string): HoldingRow[] {
+  return positions.filter((p) => {
+    if (p.buy_date == null || p.buy_date === '') return true;
+    return p.buy_date <= snapshotDate;
+  });
 }
 
 interface MarketCacheRow {
@@ -47,17 +86,21 @@ interface MarketCacheRow {
  * Record daily portfolio snapshot for a single user.
  * For each holding position with a market_cache price, insert a snapshot row.
  * Uses INSERT OR REPLACE to handle re-runs on the same day.
+ * 非交易日不写库，避免周末跑刷新脚本或误调时在盈亏日历出现「休市日有快照」。
  */
 export function takeSnapshot(userId: number, date: string, db?: Database.Database): void {
   const database = db || getDatabase();
 
+  if (!isTradingDayIsoDate(date)) return;
+
   const positions = database
     .prepare(
-      `SELECT stock_code, stock_name, shares, cost_price
+      `SELECT stock_code, stock_name, shares, cost_price, buy_date
        FROM positions
-       WHERE user_id = ? AND position_type = 'holding' AND shares > 0`
+       WHERE user_id = ? AND position_type = 'holding' AND shares > 0
+         AND (buy_date IS NULL OR buy_date <= ?)`
     )
-    .all(userId) as HoldingRow[];
+    .all(userId, date) as HoldingRow[];
 
   if (positions.length === 0) return;
 
@@ -112,6 +155,46 @@ export function takeAllUsersSnapshot(date: string, db?: Database.Database): void
   }
 }
 
+/**
+ * 删除「快照日期早于该仓 buy_date」的快照行（修正晚录入/旧逻辑污染后应执行，再跑补录）。
+ * 仅匹配当前仍存在的持仓记录；已删仓的历史快照不会改动。
+ */
+export function deleteSnapshotsViolatingBuyDate(db?: Database.Database): number {
+  const database = db || getDatabase();
+  const result = database
+    .prepare(
+      `DELETE FROM portfolio_snapshots
+       WHERE id IN (
+         SELECT ps.id
+         FROM portfolio_snapshots ps
+         INNER JOIN positions p
+           ON p.user_id = ps.user_id
+           AND p.stock_code = ps.stock_code
+           AND p.position_type = 'holding'
+         WHERE p.buy_date IS NOT NULL AND TRIM(p.buy_date) != ''
+           AND ps.snapshot_date < p.buy_date
+       )`
+    )
+    .run();
+  return result.changes;
+}
+
+/** 删除快照日期本身非 A 股交易日的行（含历史误写入的周六日等；保留调休补班日）。 */
+export function deleteSnapshotsOnNonTradingDays(db?: Database.Database): number {
+  const database = db || getDatabase();
+  const rows = database
+    .prepare('SELECT DISTINCT snapshot_date FROM portfolio_snapshots ORDER BY snapshot_date')
+    .all() as { snapshot_date: string }[];
+  let removed = 0;
+  for (const { snapshot_date } of rows) {
+    if (!isTradingDayIsoDate(snapshot_date)) {
+      const r = database.prepare('DELETE FROM portfolio_snapshots WHERE snapshot_date = ?').run(snapshot_date);
+      removed += r.changes;
+    }
+  }
+  return removed;
+}
+
 // --- Chart Data Aggregation ---
 
 /**
@@ -122,12 +205,14 @@ function periodToDays(period: string): number {
     case '7d': return 7;
     case '30d': return 30;
     case '90d': return 90;
+    case '365d': return 365;
     default: return 30;
   }
 }
 
 /**
- * Get profit curve data: totalValue and totalProfit per day over a period.
+ * Get profit curve data per snapshot day: MV, P&L, cost, return on cost,
+ * plus day-over-day MV % and P&L delta vs previous snapshot day.
  */
 export function getProfitCurve(userId: number, period: string, db?: Database.Database): ProfitCurvePoint[] {
   const database = db || getDatabase();
@@ -135,19 +220,74 @@ export function getProfitCurve(userId: number, period: string, db?: Database.Dat
 
   const rows = database
     .prepare(
-      `SELECT snapshot_date, SUM(market_value) as total_value, SUM(profit_loss) as total_profit
+      `SELECT snapshot_date,
+              SUM(market_value) as total_value,
+              SUM(profit_loss) as total_profit,
+              SUM(shares * cost_price) as total_cost
        FROM portfolio_snapshots
        WHERE user_id = ? AND snapshot_date >= date('now', '-' || ? || ' days')
        GROUP BY snapshot_date
        ORDER BY snapshot_date ASC`
     )
-    .all(userId, days) as { snapshot_date: string; total_value: number; total_profit: number }[];
+    .all(userId, days) as {
+    snapshot_date: string;
+    total_value: number;
+    total_profit: number;
+    total_cost: number;
+  }[];
 
-  return rows.map((r) => ({
-    date: r.snapshot_date,
-    totalValue: r.total_value,
-    totalProfit: r.total_profit,
-  }));
+  const base: ProfitCurvePoint[] = rows.map((r) => {
+    const totalCost = Number(r.total_cost) || 0;
+    const totalProfit = Number(r.total_profit) || 0;
+    const returnOnCostPct =
+      totalCost > 0 ? Math.round((totalProfit / totalCost) * 10000) / 100 : 0;
+    return {
+      date: r.snapshot_date,
+      totalValue: Number(r.total_value) || 0,
+      totalProfit,
+      totalCost,
+      returnOnCostPct,
+      dayMvChangePct: null as number | null,
+      dayProfitDelta: null as number | null,
+    };
+  });
+
+  for (let i = 1; i < base.length; i++) {
+    const prev = base[i - 1];
+    const curr = base[i];
+    const pv = prev.totalValue;
+    const cv = curr.totalValue;
+    const dayMvChangePct =
+      pv > 0 ? Math.round(((cv - pv) / pv) * 10000) / 100 : 0;
+    const dayProfitDelta =
+      Math.round((curr.totalProfit - prev.totalProfit) * 100) / 100;
+    curr.dayMvChangePct = dayMvChangePct;
+    curr.dayProfitDelta = dayProfitDelta;
+  }
+
+  return base;
+}
+
+/**
+ * 严格位于 prevDate 之后、currDate 之前的交易日数量（用于检测快照是否按交易日连续）。
+ */
+export function countTradingDaysExclusiveBetween(prevDate: string, currDate: string): number {
+  const cur = new Date(prevDate + 'T12:00:00');
+  const end = new Date(currDate + 'T12:00:00');
+  let cnt = 0;
+  cur.setDate(cur.getDate() + 1);
+  while (cur < end) {
+    if (isTradingDay(cur)) cnt++;
+    cur.setDate(cur.getDate() + 1);
+  }
+  return cnt;
+}
+
+function profitCurveHasCalendarGaps(points: ProfitCurvePoint[]): boolean {
+  for (let i = 1; i < points.length; i++) {
+    if (countTradingDaysExclusiveBetween(points[i - 1].date, points[i].date) > 0) return true;
+  }
+  return false;
 }
 
 /**
@@ -220,10 +360,12 @@ export function getStockPnl(userId: number, db?: Database.Database): StockPnlIte
  */
 export function getChartData(userId: number, period: string, db?: Database.Database): ChartData {
   const database = db || getDatabase();
+  const profitCurve = getProfitCurve(userId, period, database);
   return {
-    profitCurve: getProfitCurve(userId, period, database),
+    profitCurve,
     sectorDistribution: getSectorDistribution(userId, database),
     stockPnl: getStockPnl(userId, database),
+    profitCurveMeta: { hasCalendarGaps: profitCurveHasCalendarGaps(profitCurve) },
   };
 }
 
@@ -247,7 +389,8 @@ function takeHistoricalSnapshot(
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   );
 
-  for (const pos of positions) {
+  const held = filterPositionsForSnapshotDate(positions, date);
+  for (const pos of held) {
     // Try market_history close price for that date
     let marketPrice: number | null = null;
 
@@ -355,10 +498,9 @@ export function backfillMissingSnapshots(db?: Database.Database): void {
 
     if (missingDays.length === 0) continue;
 
-    // Get user's current holdings (we use current holdings for backfill —
-    // this is an approximation since we don't track historical position changes)
+    // 当前持仓 + buy_date：补录某日时仅纳入该日及之前已建仓的标的（见 takeHistoricalSnapshot 内过滤）
     const positions = database.prepare(
-      `SELECT stock_code, stock_name, shares, cost_price
+      `SELECT stock_code, stock_name, shares, cost_price, buy_date
        FROM positions
        WHERE user_id = ? AND position_type = 'holding' AND shares > 0`
     ).all(user_id) as HoldingRow[];

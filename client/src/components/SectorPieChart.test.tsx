@@ -5,6 +5,19 @@ import * as snapshotApi from '../api/snapshot';
 
 jest.mock('../api/snapshot');
 
+jest.mock('../api/positions', () => ({
+  getPositions: jest.fn().mockResolvedValue([]),
+}));
+
+jest.mock('../hooks/useMarketSSE', () => ({
+  useMarketSSE: () => ({
+    quotes: new Map(),
+    refreshQuotes: jest.fn().mockResolvedValue(undefined),
+    isConnected: false,
+    isDelayed: false,
+  }),
+}));
+
 const mockGetChartData = snapshotApi.getChartData as jest.MockedFunction<typeof snapshotApi.getChartData>;
 
 const mockChartData: snapshotApi.ChartData = {

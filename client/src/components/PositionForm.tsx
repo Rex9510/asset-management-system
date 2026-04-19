@@ -3,9 +3,11 @@ import {
   Position,
   CreatePositionData,
   UpdatePositionData,
+  StockCandidate,
   createPosition,
   updatePosition,
   deletePosition,
+  searchStockCandidates,
 } from '../api/positions';
 import { setStopLoss as setStopLossApi } from '../api/stoploss';
 
@@ -19,23 +21,15 @@ export interface PositionFormProps {
 }
 
 interface FormErrors {
-  stockCode?: string;
-  stockName?: string;
+  stockQuery?: string;
   costPrice?: string;
   shares?: string;
   buyDate?: string;
 }
 
-const STOCK_CODE_REGEX = /^[036]\d{5}$/;
-
-function validateStockCode(code: string): string | undefined {
-  if (!code.trim()) return '请输入股票代码';
-  if (!STOCK_CODE_REGEX.test(code.trim())) return '股票代码无效，请输入6位A股代码（0/3/6开头）';
-  return undefined;
-}
-
-function validateStockName(name: string): string | undefined {
-  if (!name.trim()) return '请输入股票名称';
+function validateStockSelection(query: string, selected: StockCandidate | null): string | undefined {
+  if (!query.trim()) return '请输入股票代码或名称';
+  if (!selected) return '请从搜索结果中选择股票';
   return undefined;
 }
 
@@ -74,8 +68,15 @@ const PositionForm: React.FC<PositionFormProps> = ({
   const [positionType, setPositionType] = useState<'holding' | 'watching'>(
     position?.positionType ?? defaultType
   );
-  const [stockCode, setStockCode] = useState(position?.stockCode ?? '');
-  const [stockName, setStockName] = useState(position?.stockName ?? '');
+  const [stockQuery, setStockQuery] = useState(
+    position ? `${position.stockName} (${position.stockCode})` : ''
+  );
+  const [selectedStock, setSelectedStock] = useState<StockCandidate | null>(
+    position ? { stockCode: position.stockCode, stockName: position.stockName } : null
+  );
+  const [candidates, setCandidates] = useState<StockCandidate[]>([]);
+  const [searching, setSearching] = useState(false);
+  const [showCandidateList, setShowCandidateList] = useState(false);
   const [costPrice, setCostPrice] = useState(
     position?.costPrice != null ? String(position.costPrice) : ''
   );
@@ -93,8 +94,8 @@ const PositionForm: React.FC<PositionFormProps> = ({
   useEffect(() => {
     if (position) {
       setPositionType(position.positionType);
-      setStockCode(position.stockCode);
-      setStockName(position.stockName);
+      setStockQuery(`${position.stockName} (${position.stockCode})`);
+      setSelectedStock({ stockCode: position.stockCode, stockName: position.stockName });
       setCostPrice(position.costPrice != null ? String(position.costPrice) : '');
       setShares(position.shares != null ? String(position.shares) : '');
       setBuyDate(position.buyDate ?? '');
@@ -102,11 +103,53 @@ const PositionForm: React.FC<PositionFormProps> = ({
     }
   }, [position]);
 
+  useEffect(() => {
+    if (isEdit) return;
+    const query = stockQuery.trim();
+    if (!query) {
+      setCandidates([]);
+      setShowCandidateList(false);
+      setSearching(false);
+      return;
+    }
+
+    // 已选定时输入框展示为「名称 (代码)」，不再用该串去搜，否则会空结果且仍展开「未找到匹配标的」
+    if (
+      selectedStock &&
+      query === `${selectedStock.stockName} (${selectedStock.stockCode})`
+    ) {
+      setCandidates([]);
+      setShowCandidateList(false);
+      setSearching(false);
+      return;
+    }
+
+    let cancelled = false;
+    const timer = setTimeout(async () => {
+      try {
+        setSearching(true);
+        const result = await searchStockCandidates(query);
+        if (cancelled) return;
+        setCandidates(result);
+        setShowCandidateList(true);
+      } catch {
+        if (cancelled) return;
+        setCandidates([]);
+      } finally {
+        if (!cancelled) setSearching(false);
+      }
+    }, 250);
+
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [stockQuery, isEdit, selectedStock]);
+
   function validate(): FormErrors {
     const errs: FormErrors = {};
     if (!isEdit) {
-      errs.stockCode = validateStockCode(stockCode);
-      errs.stockName = validateStockName(stockName);
+      errs.stockQuery = validateStockSelection(stockQuery, selectedStock);
     }
     if (positionType === 'holding') {
       errs.costPrice = validateCostPrice(costPrice);
@@ -133,6 +176,7 @@ const PositionForm: React.FC<PositionFormProps> = ({
         if (positionType === 'holding') {
           data.costPrice = Number(costPrice);
           data.shares = Number(shares);
+          data.buyDate = buyDate;
         }
         await updatePosition(position!.id, data);
         // Set stop loss if provided
@@ -144,9 +188,10 @@ const PositionForm: React.FC<PositionFormProps> = ({
           }
         }
       } else {
+        if (!selectedStock) return;
         const data: CreatePositionData = {
-          stockCode: stockCode.trim(),
-          stockName: stockName.trim(),
+          stockCode: selectedStock.stockCode,
+          stockName: selectedStock.stockName,
           positionType,
         };
         if (positionType === 'holding') {
@@ -170,6 +215,13 @@ const PositionForm: React.FC<PositionFormProps> = ({
     } finally {
       setSubmitting(false);
     }
+  }
+
+  function handleSelectCandidate(candidate: StockCandidate): void {
+    setSelectedStock(candidate);
+    setStockQuery(`${candidate.stockName} (${candidate.stockCode})`);
+    setShowCandidateList(false);
+    setErrors((prev) => ({ ...prev, stockQuery: undefined }));
   }
 
   async function handleDelete() {
@@ -221,36 +273,53 @@ const PositionForm: React.FC<PositionFormProps> = ({
             </div>
           )}
 
-          {/* Stock code & name - only in add mode */}
+          {/* Stock search - only in add mode */}
           {!isEdit && (
-            <>
-              <div style={styles.field}>
-                <label style={styles.label} htmlFor="pf-stockCode">股票代码</label>
-                <input
-                  id="pf-stockCode"
-                  style={styles.input}
-                  type="text"
-                  inputMode="numeric"
-                  maxLength={6}
-                  placeholder="如 600000"
-                  value={stockCode}
-                  onChange={(e) => setStockCode(e.target.value)}
-                />
-                {errors.stockCode && <span style={styles.error}>{errors.stockCode}</span>}
-              </div>
-              <div style={styles.field}>
-                <label style={styles.label} htmlFor="pf-stockName">股票名称</label>
-                <input
-                  id="pf-stockName"
-                  style={styles.input}
-                  type="text"
-                  placeholder="如 浦发银行"
-                  value={stockName}
-                  onChange={(e) => setStockName(e.target.value)}
-                />
-                {errors.stockName && <span style={styles.error}>{errors.stockName}</span>}
-              </div>
-            </>
+            <div style={styles.field}>
+              <label style={styles.label} htmlFor="pf-stockQuery">股票</label>
+              <input
+                id="pf-stockQuery"
+                style={styles.input}
+                type="text"
+                placeholder="输入股票代码或名称，如 600000 / 浦发银行"
+                value={stockQuery}
+                onFocus={() => {
+                  if (candidates.length > 0) setShowCandidateList(true);
+                }}
+                onChange={(e) => {
+                  const value = e.target.value;
+                  setStockQuery(value);
+                  setSelectedStock(null);
+                }}
+              />
+              {showCandidateList && (
+                <div style={styles.candidateList} role="listbox" aria-label="股票搜索结果">
+                  {searching ? (
+                    <div style={styles.candidateItemMuted}>搜索中...</div>
+                  ) : candidates.length > 0 ? (
+                    candidates.map((c) => (
+                      <button
+                        key={`${c.stockCode}-${c.stockName}`}
+                        type="button"
+                        style={styles.candidateItem}
+                        onClick={() => handleSelectCandidate(c)}
+                      >
+                        <span style={styles.candidateName}>{c.stockName}</span>
+                        <span style={styles.candidateCode}>{c.stockCode}</span>
+                      </button>
+                    ))
+                  ) : (
+                    <div style={styles.candidateItemMuted}>未找到匹配标的</div>
+                  )}
+                </div>
+              )}
+              {errors.stockQuery && <span style={styles.error}>{errors.stockQuery}</span>}
+              {selectedStock && (
+                <div style={styles.selectedHint}>
+                  已选择：{selectedStock.stockName}（{selectedStock.stockCode}）
+                </div>
+              )}
+            </div>
           )}
 
           {/* Holding-specific fields */}
@@ -466,6 +535,46 @@ const styles: Record<string, React.CSSProperties> = {
     fontSize: '12px',
     color: '#ff4d4f',
     marginTop: '4px',
+  },
+  candidateList: {
+    marginTop: '6px',
+    border: '1px solid #e0e3ea',
+    borderRadius: '10px',
+    background: '#fff',
+    maxHeight: '220px',
+    overflowY: 'auto',
+  },
+  candidateItem: {
+    width: '100%',
+    border: 'none',
+    background: '#fff',
+    textAlign: 'left' as const,
+    display: 'flex',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: '10px 12px',
+    cursor: 'pointer',
+    borderBottom: '1px solid #f1f3f6',
+    minHeight: '44px',
+  },
+  candidateItemMuted: {
+    fontSize: '13px',
+    color: '#8b8fa3',
+    padding: '10px 12px',
+  },
+  candidateName: {
+    fontSize: '14px',
+    color: '#1a1a2e',
+    fontWeight: 600,
+  },
+  candidateCode: {
+    fontSize: '12px',
+    color: '#8b8fa3',
+  },
+  selectedHint: {
+    marginTop: '6px',
+    fontSize: '12px',
+    color: '#667eea',
   },
   actions: {
     display: 'flex',

@@ -1,5 +1,6 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import { authMiddleware } from '../middleware/authMiddleware';
+import { calmDownEvaluateUserLimiter } from '../middleware/rateLimits';
 import { evaluateCalmDown } from './chatService';
 import { Errors } from '../errors/AppError';
 
@@ -9,7 +10,7 @@ const router = Router();
 router.use(authMiddleware);
 
 // POST /evaluate - Evaluate calm-down for a stock
-router.post('/evaluate', async (req: Request, res: Response, next: NextFunction) => {
+router.post('/evaluate', calmDownEvaluateUserLimiter, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const userId = req.user!.id;
     const { stockCode } = req.body;

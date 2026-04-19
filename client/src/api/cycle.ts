@@ -21,8 +21,12 @@ export async function getCycleMonitors(): Promise<CycleMonitorData[]> {
   return res.data.monitors;
 }
 
-export async function addCycleMonitor(stockCode: string): Promise<CycleMonitorData> {
-  const res = await apiClient.post<CycleMonitorData>('/cycle/monitors', { stockCode });
+export async function addCycleMonitor(stockCode: string, stockName?: string): Promise<CycleMonitorData> {
+  const body: { stockCode: string; stockName?: string } = { stockCode };
+  if (stockName?.trim()) {
+    body.stockName = stockName.trim();
+  }
+  const res = await apiClient.post<CycleMonitorData>('/cycle/monitors', body);
   return res.data;
 }
 

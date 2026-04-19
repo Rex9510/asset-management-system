@@ -109,7 +109,7 @@ describe('trackDailyPicks', () => {
 
   it('should do nothing when no daily_pick messages exist', async () => {
     await trackDailyPicks(testDb);
-    const trackings = getTrackingList(testDb);
+    const trackings = getTrackingList(1, testDb);
     expect(trackings).toEqual([]);
   });
 
@@ -126,7 +126,7 @@ describe('trackDailyPicks', () => {
     await trackDailyPicks(testDb);
 
     // Should have a 3-day tracking record
-    const trackings = getTrackingList(testDb);
+    const trackings = getTrackingList(1, testDb);
     expect(trackings.length).toBe(1);
     expect(trackings[0].pickId).toBe(pickId);
     expect(trackings[0].trackingDays).toBe(3);
@@ -145,7 +145,7 @@ describe('trackDailyPicks', () => {
 
     await trackDailyPicks(testDb);
 
-    const trackings = getTrackingList(testDb);
+    const trackings = getTrackingList(1, testDb);
     expect(trackings.length).toBe(4);
     const days = trackings.map(t => t.trackingDays).sort((a, b) => a - b);
     expect(days).toEqual([3, 7, 14, 30]);
@@ -182,7 +182,7 @@ describe('trackDailyPicks', () => {
     await trackDailyPicks(testDb);
     await trackDailyPicks(testDb);
 
-    const trackings = getTrackingList(testDb);
+    const trackings = getTrackingList(1, testDb);
     expect(trackings.length).toBe(1);
 
     const messages = testDb.prepare(
@@ -201,7 +201,7 @@ describe('trackDailyPicks', () => {
 
     await trackDailyPicks(testDb);
 
-    const trackings = getTrackingList(testDb);
+    const trackings = getTrackingList(1, testDb);
     expect(trackings.length).toBe(0);
   });
 
@@ -214,7 +214,7 @@ describe('trackDailyPicks', () => {
 
     await trackDailyPicks(testDb);
 
-    const trackings = getTrackingList(testDb);
+    const trackings = getTrackingList(1, testDb);
     expect(trackings.length).toBe(1);
     expect(trackings[0].status).toBe('loss');
     expect(trackings[0].returnPercent).toBeLessThan(0);
@@ -236,7 +236,7 @@ describe('getTrackingList', () => {
   });
 
   it('should return empty array when no tracking records', () => {
-    expect(getTrackingList(testDb)).toEqual([]);
+    expect(getTrackingList(1, testDb)).toEqual([]);
   });
 
   it('should return records sorted by tracked_at DESC', async () => {
@@ -254,7 +254,7 @@ describe('getTrackingList', () => {
 
     await trackDailyPicks(testDb);
 
-    const trackings = getTrackingList(testDb);
+    const trackings = getTrackingList(1, testDb);
     expect(trackings.length).toBeGreaterThan(0);
     // All records should have tracked_at in descending order
     for (let i = 1; i < trackings.length; i++) {
@@ -273,7 +273,7 @@ describe('getAccuracyStats', () => {
   });
 
   it('should return zeros when no tracking records', () => {
-    const stats = getAccuracyStats(testDb);
+    const stats = getAccuracyStats(1, testDb);
     expect(stats).toEqual({
       totalPicks: 0,
       profitCount: 0,
@@ -298,7 +298,7 @@ describe('getAccuracyStats', () => {
 
     await trackDailyPicks(testDb);
 
-    const stats = getAccuracyStats(testDb);
+    const stats = getAccuracyStats(1, testDb);
     expect(stats.totalPicks).toBe(2);
     expect(stats.profitCount).toBe(1);
     expect(stats.lossCount).toBe(1);
@@ -317,11 +317,31 @@ describe('getAccuracyStats', () => {
 
     await trackDailyPicks(testDb);
 
-    const stats = getAccuracyStats(testDb);
+    const stats = getAccuracyStats(1, testDb);
     // Only 1 unique pick, even though 4 tracking records exist
     expect(stats.totalPicks).toBe(1);
     expect(stats.profitCount).toBe(1);
     expect(stats.lossCount).toBe(0);
     expect(stats.winRate).toBe(1);
+  });
+
+  it('should only include picks for the given user', async () => {
+    insertUser(testDb, 1);
+    insertUser(testDb, 2);
+    const fourDaysAgo = new Date();
+    fourDaysAgo.setDate(fourDaysAgo.getDate() - 4);
+    insertDailyPick(testDb, 1, '600519', '贵州茅台', 1750, fourDaysAgo.toISOString());
+    insertDailyPick(testDb, 2, '000858', '五粮液', 160, fourDaysAgo.toISOString());
+    insertMarketCache(testDb, '600519', 1800);
+    insertMarketCache(testDb, '000858', 150);
+
+    await trackDailyPicks(testDb);
+
+    const stats1 = getAccuracyStats(1, testDb);
+    const stats2 = getAccuracyStats(2, testDb);
+    expect(stats1.totalPicks).toBe(1);
+    expect(stats2.totalPicks).toBe(1);
+    expect(stats1.profitCount).toBe(1);
+    expect(stats2.lossCount).toBe(1);
   });
 });

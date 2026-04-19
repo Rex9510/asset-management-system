@@ -5,7 +5,7 @@ import { getChartData } from './snapshotService';
 const router = Router();
 router.use(authMiddleware);
 
-const VALID_PERIODS = ['7d', '30d', '90d'];
+const VALID_PERIODS = ['7d', '30d', '90d', '365d'];
 
 // GET /api/snapshot/chart-data?period=30d
 router.get('/chart-data', (req: Request, res: Response, next: NextFunction) => {

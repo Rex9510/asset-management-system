@@ -41,7 +41,7 @@ test('已完成报告应包含所有必要非空字段', () => {
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'deepseek-chat', 75, ?, 'completed', ?)`
         ).run(1, stockCode, stockName, conclusion, fundamentals, financials, valuation, strategy, today, now);
 
-        const report = getDeepReport(Number(result.lastInsertRowid), db);
+        const report = getDeepReport(Number(result.lastInsertRowid), 1, db);
         if (!report) return false;
 
         return (
@@ -125,11 +125,11 @@ test('按股票代码和时间检索能找到报告，内容一致', () => {
         ).run(1, stockCode, stockName, conclusion, today, now);
 
         // Retrieve by ID
-        const report = getDeepReport(Number(result.lastInsertRowid), db);
+        const report = getDeepReport(Number(result.lastInsertRowid), 1, db);
         if (!report) return false;
 
         // Retrieve by history (stockCode filter)
-        const history = getDeepReportHistory(stockCode, 1, 100, db);
+        const history = getDeepReportHistory(stockCode, 1, 100, 1, db);
         const found = history.reports.find(r => r.id === report.id);
 
         return (

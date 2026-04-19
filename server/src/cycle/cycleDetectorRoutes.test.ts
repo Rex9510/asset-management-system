@@ -13,9 +13,9 @@ jest.mock('../db/connection', () => ({
 
 jest.mock('axios');
 
-// Mock ensureStockHistory to avoid network calls in tests
+// Mock fetchAndSaveStockHistory to avoid network calls in tests
 jest.mock('../market/historyService', () => ({
-  ensureStockHistory: jest.fn().mockResolvedValue(0),
+  fetchAndSaveStockHistory: jest.fn().mockResolvedValue(0),
 }));
 
 import authRoutes from '../auth/authRoutes';
@@ -33,7 +33,7 @@ function createApp() {
 async function registerAndGetToken(app: express.Express): Promise<string> {
   const res = await request(app)
     .post('/api/auth/register')
-    .send({ username: 'testuser', password: 'pass123' });
+    .send({ username: 'testuser', password: 'pass123', agreedTerms: true });
   return res.body.token;
 }
 
@@ -123,6 +123,16 @@ describe('Cycle Detector Routes', () => {
       expect(res.body.id).toBeDefined();
     });
 
+    it('should persist optional stockName from body (e.g. ETF Chinese name)', async () => {
+      const res = await request(app)
+        .post('/api/cycle/monitors')
+        .set('Authorization', `Bearer ${token}`)
+        .send({ stockCode: '159757', stockName: '电池ETF' });
+      expect(res.status).toBe(201);
+      expect(res.body.stockCode).toBe('159757');
+      expect(res.body.stockName).toBe('电池ETF');
+    });
+
     it('should return existing monitor if already added', async () => {
       const res1 = await request(app)
         .post('/api/cycle/monitors')
@@ -178,7 +188,7 @@ describe('Cycle Detector Routes', () => {
       // Create another user
       const res2 = await request(app)
         .post('/api/auth/register')
-        .send({ username: 'otheruser', password: 'pass456' });
+        .send({ username: 'otheruser', password: 'pass456', agreedTerms: true });
       const otherUserId = testDb.prepare('SELECT id FROM users WHERE username = ?').get('otheruser') as { id: number };
       const monitorId = seedMonitor(testDb, otherUserId.id);
 

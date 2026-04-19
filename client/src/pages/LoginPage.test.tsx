@@ -1,4 +1,5 @@
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import '@testing-library/jest-dom';
 import LoginPage from './LoginPage';
@@ -24,6 +25,13 @@ function renderLoginPage() {
 
 function submitBtn() {
   return screen.getByTestId('submit-btn');
+}
+
+async function agreeToTerms() {
+  const checkboxes = screen.getAllByRole('checkbox');
+  // 登录页：第 1 个为「记住账号密码」，第 2 个为「同意用户协议」；注册页仅协议一项
+  const agreeBox = checkboxes[checkboxes.length - 1];
+  await userEvent.click(agreeBox);
 }
 
 beforeEach(() => {
@@ -75,9 +83,11 @@ describe('LoginPage', () => {
     renderLoginPage();
     fireEvent.change(screen.getByPlaceholderText('用户名'), { target: { value: 'testuser' } });
     fireEvent.change(screen.getByPlaceholderText('密码'), { target: { value: 'password123' } });
+    await agreeToTerms();
     fireEvent.click(submitBtn());
 
     await waitFor(() => {
+      expect(mockedAuth.loginUser).toHaveBeenCalledWith('testuser', 'password123', true);
       expect(localStorage.getItem('token')).toBe('jwt-token-123');
       const storedUser = JSON.parse(localStorage.getItem('user')!);
       expect(storedUser).toEqual({ id: 1, username: 'testuser' });
@@ -97,10 +107,11 @@ describe('LoginPage', () => {
     fireEvent.click(screen.getByRole('button', { name: '注册' }));
     fireEvent.change(screen.getByPlaceholderText('用户名'), { target: { value: 'newuser' } });
     fireEvent.change(screen.getByPlaceholderText('密码'), { target: { value: 'password123' } });
+    await agreeToTerms();
     fireEvent.click(submitBtn());
 
     await waitFor(() => {
-      expect(mockedAuth.registerUser).toHaveBeenCalledWith('newuser', 'password123');
+      expect(mockedAuth.registerUser).toHaveBeenCalledWith('newuser', 'password123', true);
       expect(localStorage.getItem('token')).toBe('new-token-456');
       const storedUser = JSON.parse(localStorage.getItem('user')!);
       expect(storedUser).toEqual({ id: 2, username: 'newuser' });
@@ -121,6 +132,7 @@ describe('LoginPage', () => {
     renderLoginPage();
     fireEvent.change(screen.getByPlaceholderText('用户名'), { target: { value: 'testuser' } });
     fireEvent.change(screen.getByPlaceholderText('密码'), { target: { value: 'wrongpass' } });
+    await agreeToTerms();
     fireEvent.click(submitBtn());
 
     await waitFor(() => {

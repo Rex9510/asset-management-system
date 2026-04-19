@@ -5,6 +5,25 @@
 import Database from 'better-sqlite3';
 import { takeSnapshot, getProfitCurve, getSectorDistribution, getStockPnl } from './snapshotService';
 import { initializeDatabase } from '../db/init';
+import { isTradingDayIsoDate } from '../scheduler/tradingDayGuard';
+
+function localYmd(d: Date): string {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+/** 最近若干天内的 A 股交易日（本地日历），保证 takeSnapshot 与 getProfitCurve(365d) 同窗口内可用 */
+function recentTradingDayIso(maxLookBack = 20): string {
+  const d = new Date();
+  for (let i = 0; i < maxLookBack; i++) {
+    const s = localYmd(d);
+    if (isTradingDayIsoDate(s)) return s;
+    d.setDate(d.getDate() - 1);
+  }
+  throw new Error('recentTradingDayIso: no trading day in range');
+}
 
 function setupDb(): Database.Database {
   const db = new Database(':memory:');
@@ -24,16 +43,16 @@ function addHolding(db: Database.Database, id: number, stockCode: string, stockN
 
 // Feature: ai-investment-assistant-phase2, Property 34: 收益曲线数据正确性
 // 验证需求：15.1
-test('totalValue=该日所有持仓市值之和，totalProfit=totalValue-总成本', () => {
+test('totalValue=市值之和，returnOnCostPct=总盈亏/总成本（加仓不当作凭空收益）', () => {
   const db = setupDb();
 
   addHolding(db, 1, '600000', '浦发银行', 1000, 10, 12);  // value=12000, cost=10000, profit=2000
   addHolding(db, 2, '300001', '特锐德', 500, 20, 18);      // value=9000, cost=10000, profit=-1000
 
-  const today = new Date().toISOString().slice(0, 10);
-  takeSnapshot(1, today, db);
+  const tradeDay = recentTradingDayIso();
+  takeSnapshot(1, tradeDay, db);
 
-  const curve = getProfitCurve(1, '30d', db);
+  const curve = getProfitCurve(1, '365d', db);
   expect(curve).toHaveLength(1);
 
   const point = curve[0];
@@ -41,6 +60,10 @@ test('totalValue=该日所有持仓市值之和，totalProfit=totalValue-总成�
   expect(point.totalValue).toBeCloseTo(21000, 0);
   // totalProfit = (12000-10000) + (9000-10000) = 2000 + (-1000) = 1000
   expect(point.totalProfit).toBeCloseTo(1000, 0);
+  expect(point.totalCost).toBeCloseTo(20000, 0);
+  expect(point.returnOnCostPct).toBeCloseTo(5, 1); // 1000/20000*100
+  expect(point.dayMvChangePct).toBeNull();
+  expect(point.dayProfitDelta).toBeNull();
 
   db.close();
 });
@@ -54,8 +77,8 @@ test('各板块 percentage 之和=100%，每个板块 value=该板块下所有�
   addHolding(db, 2, '601398', '工商银行', 500, 6, 6);      // 沪市主板 3000
   addHolding(db, 3, '300001', '特锐德', 200, 25, 25);      // 创业板 5000
 
-  const today = new Date().toISOString().slice(0, 10);
-  takeSnapshot(1, today, db);
+  const tradeDay = recentTradingDayIso();
+  takeSnapshot(1, tradeDay, db);
 
   const dist = getSectorDistribution(1, db);
   expect(dist.length).toBeGreaterThan(0);
@@ -85,8 +108,8 @@ test('数据按盈亏金额降序排列', () => {
   addHolding(db, 2, '300001', '特锐德', 500, 20, 15);      // profit = -2500
   addHolding(db, 3, '000001', '平安银行', 800, 10, 11);    // profit = 800
 
-  const today = new Date().toISOString().slice(0, 10);
-  takeSnapshot(1, today, db);
+  const tradeDay = recentTradingDayIso();
+  takeSnapshot(1, tradeDay, db);
 
   const pnl = getStockPnl(1, db);
   expect(pnl.length).toBe(3);

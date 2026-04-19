@@ -1,6 +1,12 @@
 import { renderHook, act } from '@testing-library/react';
 import { useMarketSSE } from './useMarketSSE';
 
+jest.mock('../api/market', () => ({
+  fetchQuotesForStockCodes: jest.fn().mockResolvedValue([]),
+}));
+
+const marketApi = require('../api/market') as { fetchQuotesForStockCodes: jest.Mock };
+
 // Mock EventSource
 class MockEventSource {
   static instances: MockEventSource[] = [];
@@ -59,6 +65,7 @@ beforeEach(() => {
   MockEventSource.reset();
   localStorage.setItem('token', 'test-token');
   jest.useFakeTimers();
+  marketApi.fetchQuotesForStockCodes.mockResolvedValue([]);
 });
 
 afterEach(() => {
@@ -73,6 +80,19 @@ describe('useMarketSSE', () => {
     expect(es).toBeDefined();
     expect(es!.url).toContain('/api/market/sse');
     expect(es!.url).toContain('token=test-token');
+  });
+
+  it('refreshQuotes merges REST results when codes passed explicitly', async () => {
+    marketApi.fetchQuotesForStockCodes.mockResolvedValueOnce([
+      { stockCode: '600000', stockName: '浦发银行', price: 12.34, changePercent: 2.5, volume: 1000, timestamp: '2024-01-01T00:00:00Z' },
+    ]);
+    const { result } = renderHook(() => useMarketSSE([]));
+    await act(async () => {
+      await result.current.refreshQuotes(['600000']);
+    });
+    expect(result.current.quotes.get('600000')).toEqual(
+      expect.objectContaining({ stockCode: '600000', price: 12.34, changePercent: 2.5 })
+    );
   });
 
   it('does not connect when no stock codes', () => {

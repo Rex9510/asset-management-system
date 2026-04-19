@@ -47,7 +47,7 @@ describe('RotationTag', () => {
       expect(screen.getByTestId('rotation-tag')).toBeInTheDocument();
     });
     const tag = screen.getByTestId('rotation-tag');
-    expect(tag).toHaveTextContent('P1 科技成长 🔄');
+    expect(tag).toHaveTextContent('P1 科技成长 🔄 ›');
     expect(tag).toHaveStyle({ color: '#6c9bff' });
   });
 
@@ -62,7 +62,7 @@ describe('RotationTag', () => {
       expect(screen.getByTestId('rotation-tag')).toBeInTheDocument();
     });
     const tag = screen.getByTestId('rotation-tag');
-    expect(tag).toHaveTextContent('P2 周期品 🔄');
+    expect(tag).toHaveTextContent('P2 周期品 🔄 ›');
     expect(tag).toHaveStyle({ color: '#ffa502' });
   });
 
@@ -77,7 +77,7 @@ describe('RotationTag', () => {
       expect(screen.getByTestId('rotation-tag')).toBeInTheDocument();
     });
     const tag = screen.getByTestId('rotation-tag');
-    expect(tag).toHaveTextContent('P3 消费白酒 🔄');
+    expect(tag).toHaveTextContent('P3 消费白酒 🔄 ›');
     expect(tag).toHaveStyle({ color: '#c39bdf' });
   });
 });

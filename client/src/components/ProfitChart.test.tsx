@@ -5,25 +5,37 @@ import * as snapshotApi from '../api/snapshot';
 
 jest.mock('../api/snapshot');
 
+jest.mock('../api/positions', () => ({
+  getPositions: jest.fn().mockResolvedValue([]),
+}));
+
+jest.mock('../hooks/useMarketSSE', () => ({
+  useMarketSSE: () => ({
+    quotes: new Map(),
+    refreshQuotes: jest.fn().mockResolvedValue(undefined),
+    isConnected: false,
+    isDelayed: false,
+  }),
+}));
+
 const mockGetChartData = snapshotApi.getChartData as jest.MockedFunction<typeof snapshotApi.getChartData>;
 
 const mockChartData: snapshotApi.ChartData = {
+  profitCurveMeta: { hasCalendarGaps: false },
   profitCurve: [
-    { date: '2024-05-28', totalValue: 200000, totalProfit: 5000 },
-    { date: '2024-05-29', totalValue: 202000, totalProfit: 7000 },
-    { date: '2024-05-30', totalValue: 198000, totalProfit: 3000 },
+    { date: '2024-05-28', totalValue: 200000, totalProfit: 5000, totalCost: 195000, returnOnCostPct: 2.56, dayMvChangePct: null, dayProfitDelta: null },
+    { date: '2024-05-29', totalValue: 202000, totalProfit: 7000, totalCost: 195000, returnOnCostPct: 3.59, dayMvChangePct: 1, dayProfitDelta: 2000 },
+    { date: '2024-05-30', totalValue: 198000, totalProfit: 3000, totalCost: 195000, returnOnCostPct: 1.54, dayMvChangePct: (-2000 / 202000) * 100, dayProfitDelta: -4000 },
   ],
   sectorDistribution: [],
   stockPnl: [],
 };
 
-// Mock IntersectionObserver
 const mockObserve = jest.fn();
 const mockDisconnect = jest.fn();
 
 beforeAll(() => {
   (global as any).IntersectionObserver = jest.fn((callback: any) => {
-    // Immediately trigger as visible
     setTimeout(() => callback([{ isIntersecting: true }]), 0);
     return { observe: mockObserve, disconnect: mockDisconnect, unobserve: jest.fn() };
   });
@@ -40,13 +52,10 @@ describe('ProfitChart', () => {
     expect(screen.getByTestId('profit-chart-card')).toBeInTheDocument();
   });
 
-  it('shows period tabs', () => {
+  it('shows range hint', () => {
     mockGetChartData.mockReturnValue(new Promise(() => {}));
     render(<ProfitChart />);
-    expect(screen.getByTestId('period-tabs')).toBeInTheDocument();
-    expect(screen.getByTestId('period-tab-7d')).toHaveTextContent('7天');
-    expect(screen.getByTestId('period-tab-30d')).toHaveTextContent('30天');
-    expect(screen.getByTestId('period-tab-90d')).toHaveTextContent('90天');
+    expect(screen.getByText('近一年快照')).toBeInTheDocument();
   });
 
   it('shows loading state', async () => {
@@ -63,7 +72,7 @@ describe('ProfitChart', () => {
     await waitFor(() => {
       expect(screen.getByTestId('profit-empty')).toBeInTheDocument();
     });
-    expect(screen.getByText('暂无收益数据')).toBeInTheDocument();
+    expect(screen.getByText('暂无收益率数据')).toBeInTheDocument();
   });
 
   it('shows error state on API failure', async () => {
@@ -74,28 +83,44 @@ describe('ProfitChart', () => {
     });
   });
 
-  it('renders curve bars with data', async () => {
+  it('fetches 365d and renders calendar', async () => {
     mockGetChartData.mockResolvedValue(mockChartData);
     render(<ProfitChart />);
     await waitFor(() => {
-      expect(screen.getByTestId('profit-curve')).toBeInTheDocument();
+      expect(screen.getByTestId('profit-calendar')).toBeInTheDocument();
     });
-    expect(screen.getByTestId('curve-bar-0')).toBeInTheDocument();
-    expect(screen.getByTestId('curve-bar-1')).toBeInTheDocument();
-    expect(screen.getByTestId('curve-bar-2')).toBeInTheDocument();
+    await waitFor(() => {
+      expect(mockGetChartData).toHaveBeenCalledWith('365d');
+    });
+    expect(screen.getByTestId('calendar-grid')).toBeInTheDocument();
+    expect(screen.getByTestId('calendar-cell-2024-05-28')).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByTestId('month-cumulative-pnl')).toHaveTextContent('-¥2,000.00');
+    });
   });
 
-  it('switches period on tab click', async () => {
+  it('navigates to previous month', async () => {
     mockGetChartData.mockResolvedValue(mockChartData);
     render(<ProfitChart />);
     await waitFor(() => {
-      expect(screen.getByTestId('profit-curve')).toBeInTheDocument();
+      expect(screen.getByTestId('calendar-title')).toHaveTextContent('2024年5月');
     });
+    fireEvent.click(screen.getByTestId('calendar-month-prev'));
+    expect(screen.getByTestId('calendar-title')).toHaveTextContent('2024年4月');
+  });
 
-    fireEvent.click(screen.getByTestId('period-tab-7d'));
+  it('selects a day and shows detail strip', async () => {
+    mockGetChartData.mockResolvedValue(mockChartData);
+    render(<ProfitChart />);
     await waitFor(() => {
-      expect(mockGetChartData).toHaveBeenCalledWith('7d');
+      expect(screen.getByTestId('calendar-title')).toHaveTextContent('2024年5月');
     });
+    fireEvent.click(screen.getByTestId('calendar-cell-2024-05-29'));
+    await waitFor(() => {
+      expect(screen.getByTestId('day-mv-pct')).toHaveTextContent('+1.00%');
+    });
+    expect(screen.getByTestId('day-profit-delta')).toHaveTextContent('+¥2,000.00');
+    expect(screen.getByTestId('day-cumulative-pnl')).toHaveTextContent('+¥7,000.00');
   });
 
   it('uses IntersectionObserver for lazy loading', () => {

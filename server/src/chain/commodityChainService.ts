@@ -3,10 +3,12 @@
  *
  * 纯规则引擎，零AI调用。
  * 监控7个商品ETF节点：黄金→白银→有色→煤炭→化工→橡胶→原油
- * 基于5年涨跌幅相对排名判断节点传导状态（大宗商品长周期轮动）：
- *   排名前30%（前2名）→ activated（长期涨幅领先，主升浪已走）
- *   排名中间40%（3名）→ transmitting（正在传导，酝酿中）
- *   排名后30%（后2名）→ inactive（涨幅落后，尚未轮到，适合埋伏）
+ *
+ * 规则摘要：
+ * - 主排名：在约 3～5 年等价交易日（750～1250 根 K，按数据量择优）区间涨跌幅，7 节点横截面相对排名
+ * - 辅提示：约 6 个月（120 交易日）涨跌幅，用于文案「短期动能」
+ * - 数据不足：自动缩短主窗口并在 windowNote 明示
+ * - 状态滞回：与上次已落库状态不一致时，需连续 2 次运行得到相同「原始排名状态」才切换展示状态（减轻抖动）
  */
 import Database from 'better-sqlite3';
 import { getDatabase } from '../db/connection';
@@ -21,34 +23,87 @@ export interface ChainNode {
   name: string;
   shortName: string;
   status: ChainNodeStatus;
+  /** 主窗口区间涨跌幅（%）；API 字段名历史原因仍为 change10d */
   change10d: number;
+  /** 约 6 个月（120 交易日）涨跌幅（%），辅提示 */
+  changeAux?: number;
+  primaryWindowDays?: number;
+  maxHistoryDays?: number;
+  windowNote?: string;
   label: string;
 }
 
 export interface ChainStatusResponse {
   nodes: ChainNode[];
   updatedAt: string;
+  /** 口径说明，供前端展示 */
+  methodSummary?: string;
 }
 
 // --- Constants ---
 
+/** 主排名：最多约 5 年 */
+const PRIMARY_DAY_MAX = 1250;
+/** 主排名：约 4 年（数据足够时优先） */
+const PRIMARY_DAY_MID = 1000;
+/** 主排名：约 3 年（中长窗下限） */
+const PRIMARY_DAY_MIN = 750;
+/** 辅窗口：约 6 个月（2～6 个月取上沿偏稳） */
+const AUX_TRADING_DAYS = 120;
+/** 状态切换：原始排名状态需连续命中次数 */
+export const CHAIN_STATUS_HYSTERESIS_RUNS = 2;
+
+export const CHAIN_METHOD_SUMMARY =
+  '主排名按约3～5年有效K线择优；近6月为辅；状态连续2次一致才切换。';
+
 /**
- * Generate human-readable label based on change% and status.
+ * 由可用 K 线跨度决定主排名窗口（交易日）。
  */
-function generateLabel(change: number, status: ChainNodeStatus): string {
+export function resolvePrimaryWindowDays(maxSpan: number): { primaryDays: number; windowNote: string } {
+  if (maxSpan <= 0) {
+    return { primaryDays: 0, windowNote: '无数据' };
+  }
+  if (maxSpan < 250) {
+    return { primaryDays: maxSpan, windowNote: `数据有限·${maxSpan}日` };
+  }
+  if (maxSpan >= PRIMARY_DAY_MAX) {
+    return { primaryDays: PRIMARY_DAY_MAX, windowNote: '主排名约满5年' };
+  }
+  if (maxSpan >= PRIMARY_DAY_MID) {
+    return { primaryDays: PRIMARY_DAY_MID, windowNote: '主排名约4年' };
+  }
+  if (maxSpan >= PRIMARY_DAY_MIN) {
+    return { primaryDays: PRIMARY_DAY_MIN, windowNote: '主排名约3年' };
+  }
+  return { primaryDays: maxSpan, windowNote: `主排名·${maxSpan}日` };
+}
+
+/**
+ * Generate human-readable label based on primary change%, status, and aux (short) change.
+ */
+function generateLabel(
+  primaryChange: number,
+  status: ChainNodeStatus,
+  auxChange?: number | null
+): string {
+  if (status === 'inactive' && auxChange != null && auxChange >= 12) {
+    return '可埋伏·短期转强';
+  }
+  if (status === 'inactive' && auxChange != null && auxChange <= -10) {
+    return '可埋伏·短期承压';
+  }
   if (status === 'activated') {
-    if (change >= 200) return '主升浪已走';
-    if (change >= 100) return '长期大牛';
+    if (primaryChange >= 200) return '主升浪已走';
+    if (primaryChange >= 100) return '长期大牛';
     return '涨幅领先';
   }
   if (status === 'transmitting') {
-    if (change >= 50) return '跟涨中';
-    if (change >= 10) return '酝酿启动';
+    if (primaryChange >= 50) return '跟涨中';
+    if (primaryChange >= 10) return '酝酿启动';
+    if (auxChange != null && auxChange >= 8) return '蓄势·短期偏强';
     return '蓄势待发';
   }
-  // inactive
-  if (change < 0) return '可埋伏';
-  if (change < 10) return '可埋伏';
+  if (primaryChange < 10) return '可埋伏';
   return '涨幅落后';
 }
 
@@ -82,16 +137,14 @@ async function getKlineData(
   days: number,
   db: Database.Database
 ): Promise<{ close: number; date: string }[]> {
-  // Try DB first
   const dbRows = getKlineFromDb(stockCode, days, db);
   if (dbRows.length >= days) {
     return dbRows;
   }
 
-  // Fallback: fetch from Tencent API
   const now = new Date();
   const start = new Date();
-  start.setDate(start.getDate() - Math.ceil(days * 1.8)); // extra buffer for non-trading days
+  start.setDate(start.getDate() - Math.ceil(days * 1.8));
   const startStr = start.toISOString().slice(0, 10);
   const endStr = now.toISOString().slice(0, 10);
 
@@ -105,7 +158,6 @@ async function getKlineData(
     // API failed, fall through
   }
 
-  // Return whatever DB had
   return dbRows;
 }
 
@@ -113,21 +165,15 @@ async function getKlineData(
 
 /**
  * Map chain node status based on relative ranking among all nodes.
- * 按60日涨跌幅排名分配状态（适合任何行情下区分传导先后）：
- *   排名前30% → activated（涨幅领先，主升浪已走）
- *   排名中间40% → transmitting（正在传导，酝酿中）
- *   排名后30% → inactive（涨幅落后，尚未轮到，适合埋伏）
- *
- * 对于7个节点：前2名activated，中间3名transmitting，后2名inactive
+ * 按主窗口区间涨跌幅横截面排名。
  */
 export function assignStatusByRanking(
   changes: { index: number; change: number }[]
 ): Map<number, ChainNodeStatus> {
-  const sorted = [...changes].sort((a, b) => b.change - a.change); // 降序
+  const sorted = [...changes].sort((a, b) => b.change - a.change);
   const n = sorted.length;
   const result = new Map<number, ChainNodeStatus>();
 
-  // 前30%=activated, 中间40%=transmitting, 后30%=inactive
   const activatedCount = Math.max(1, Math.round(n * 0.3));
   const inactiveCount = Math.max(1, Math.round(n * 0.3));
 
@@ -146,7 +192,6 @@ export function assignStatusByRanking(
 
 /**
  * Legacy: map single change to status (used in tests for boundary logic).
- * 保留兼容，但实际传导链使用 assignStatusByRanking。
  */
 export function mapChangeToStatus(change60d: number): ChainNodeStatus {
   if (change60d > 8) return 'activated';
@@ -156,20 +201,18 @@ export function mapChangeToStatus(change60d: number): ChainNodeStatus {
 
 /**
  * Calculate N-day change for a single ETF.
- * changeNd = (latest close - close N days ago) / close N days ago * 100
  */
 async function calculateNdChange(
   stockCode: string,
   days: number,
   db: Database.Database
 ): Promise<number> {
-  const data = await getKlineData(stockCode, days + 5, db); // extra buffer
+  const data = await getKlineData(stockCode, days + 5, db);
 
   if (data.length < 2) {
     return 0;
   }
 
-  // Data is in DESC order from DB, reverse for chronological
   const sorted = [...data].sort((a, b) => a.date.localeCompare(b.date));
 
   const latestClose = sorted[sorted.length - 1].close;
@@ -182,53 +225,115 @@ async function calculateNdChange(
   return Math.round(change * 100) / 100;
 }
 
+export interface PrimaryWindowResult {
+  change: number;
+  primaryDaysUsed: number;
+  maxHistoryDays: number;
+  windowNote: string;
+}
+
 /**
- * Calculate 5-year(1250交易日)涨跌幅 for a single ETF.
- * 用5年涨跌幅判断大宗商品长周期轮动，适合埋伏下一个准备涨的品种。
- * 数据不足1250交易日时，使用可用的最长周期。
+ * 主窗口区间涨跌幅（3～5 年择优）+ 说明文案。
+ */
+export async function calculatePrimaryWindowChange(
+  stockCode: string,
+  db: Database.Database
+): Promise<PrimaryWindowResult> {
+  const data = await getKlineData(stockCode, PRIMARY_DAY_MAX + 10, db);
+
+  if (data.length < 2) {
+    return { change: 0, primaryDaysUsed: 0, maxHistoryDays: 0, windowNote: '无数据' };
+  }
+
+  const sorted = [...data].sort((a, b) => a.date.localeCompare(b.date));
+  const maxHistoryDays = sorted.length - 1;
+  const { primaryDays, windowNote } = resolvePrimaryWindowDays(maxHistoryDays);
+
+  if (primaryDays <= 0) {
+    return { change: 0, primaryDaysUsed: 0, maxHistoryDays, windowNote };
+  }
+
+  const latestClose = sorted[sorted.length - 1].close;
+  const idx = Math.max(0, sorted.length - primaryDays - 1);
+  const oldClose = sorted[idx].close;
+
+  if (oldClose <= 0) {
+    return { change: 0, primaryDaysUsed: primaryDays, maxHistoryDays, windowNote };
+  }
+
+  const change = ((latestClose - oldClose) / oldClose) * 100;
+  return {
+    change: Math.round(change * 100) / 100,
+    primaryDaysUsed: primaryDays,
+    maxHistoryDays,
+    windowNote,
+  };
+}
+
+/**
+ * @deprecated 语义见 calculatePrimaryWindowChange；保留返回单一数字供旧测试调用。
  */
 export async function calculateCompositeChange(
   stockCode: string,
   db: Database.Database
 ): Promise<number> {
-  // 尝试5年(1250交易日)，数据不足则降级
-  const TARGET_DAYS = 1250;
-  const data = await getKlineData(stockCode, TARGET_DAYS + 10, db);
-
-  if (data.length < 2) return 0;
-
-  const sorted = [...data].sort((a, b) => a.date.localeCompare(b.date));
-  const latestClose = sorted[sorted.length - 1].close;
-
-  // 使用可用的最长周期（最多750交易日）
-  const actualDays = Math.min(TARGET_DAYS, sorted.length - 1);
-  const idx = Math.max(0, sorted.length - actualDays - 1);
-  const oldClose = sorted[idx].close;
-
-  if (oldClose <= 0) return 0;
-
-  const change = ((latestClose - oldClose) / oldClose) * 100;
-  return Math.round(change * 100) / 100;
+  const r = await calculatePrimaryWindowChange(stockCode, db);
+  return r.change;
 }
 
 /**
+ * 状态滞回：原始排名状态 raw 与已提交 committed 不一致时，需连续 HYSTERESIS 次相同 raw 才切换为 raw。
+ */
+export function applyHysteresis(
+  raw: ChainNodeStatus,
+  committed: ChainNodeStatus | null,
+  pending: ChainNodeStatus | null,
+  pendingCount: number
+): { status: ChainNodeStatus; pendingStatus: string | null; pendingCount: number } {
+  if (committed === null) {
+    return { status: raw, pendingStatus: null, pendingCount: 0 };
+  }
+  if (raw === committed) {
+    return { status: committed, pendingStatus: null, pendingCount: 0 };
+  }
+  if (pending === raw) {
+    const next = pendingCount + 1;
+    if (next >= CHAIN_STATUS_HYSTERESIS_RUNS) {
+      return { status: raw, pendingStatus: null, pendingCount: 0 };
+    }
+    return { status: committed, pendingStatus: raw, pendingCount: next };
+  }
+  return { status: committed, pendingStatus: raw, pendingCount: 1 };
+}
+
+type ChainStatusRow = {
+  node_index: number;
+  symbol: string;
+  name: string;
+  short_name: string;
+  status: string;
+  change_10d: number;
+  change_aux: number | null;
+  primary_days_used: number | null;
+  max_history_days: number | null;
+  window_note: string | null;
+  pending_status: string | null;
+  pending_count: number | null;
+  updated_at: string;
+};
+
+/**
  * Get current chain status from chain_status table.
+ * `window_note` 以库内落库为准；旧行缺列时再按 max_history_days 推导。
  */
 export function getCurrentChainStatus(db?: Database.Database): ChainStatusResponse | null {
   const database = db || getDatabase();
 
   const rows = database.prepare(
-    `SELECT node_index, symbol, name, short_name, status, change_10d, updated_at
+    `SELECT node_index, symbol, name, short_name, status, change_10d, change_aux,
+            primary_days_used, max_history_days, window_note, pending_status, pending_count, updated_at
      FROM chain_status ORDER BY node_index ASC`
-  ).all() as {
-    node_index: number;
-    symbol: string;
-    name: string;
-    short_name: string;
-    status: string;
-    change_10d: number;
-    updated_at: string;
-  }[];
+  ).all() as ChainStatusRow[];
 
   if (rows.length === 0) return null;
 
@@ -238,48 +343,56 @@ export function getCurrentChainStatus(db?: Database.Database): ChainStatusRespon
   );
 
   return {
-    nodes: rows.map(r => ({
-      symbol: r.symbol,
-      name: r.name,
-      shortName: r.short_name,
-      status: r.status as ChainNodeStatus,
-      change10d: r.change_10d,
-      label: generateLabel(r.change_10d, r.status as ChainNodeStatus),
-    })),
+    nodes: rows.map(r => {
+      const status = r.status as ChainNodeStatus;
+      const aux = r.change_aux ?? undefined;
+      return {
+        symbol: r.symbol,
+        name: r.name,
+        shortName: r.short_name,
+        status,
+        change10d: r.change_10d,
+        changeAux: aux,
+        primaryWindowDays: r.primary_days_used ?? undefined,
+        maxHistoryDays: r.max_history_days ?? undefined,
+        windowNote: (() => {
+          const stored = r.window_note != null ? String(r.window_note).trim() : '';
+          if (stored !== '') return stored;
+          if (r.max_history_days != null && r.max_history_days > 0) {
+            return resolvePrimaryWindowDays(r.max_history_days).windowNote;
+          }
+          return undefined;
+        })(),
+        label: generateLabel(r.change_10d, status, aux),
+      };
+    }),
     updatedAt: latestUpdate,
+    methodSummary: CHAIN_METHOD_SUMMARY,
   };
 }
 
-
-/**
- * Create chain_activation messages for all active users when a node transitions
- * from inactive → activated.
- */
 function createActivationMessages(
   node: typeof CHAIN_NODES[number],
-  change10d: number,
+  primaryChangePct: number,
   chainStatus: ChainStatusResponse | null,
   db: Database.Database
 ): void {
-  // Active users = logged in within last 24 hours
   const users = db.prepare(
     `SELECT id FROM users WHERE last_login_at > datetime('now', '-24 hours')`
   ).all() as { id: number }[];
 
-  // Fallback: if no users with recent login, get all users
-  const targetUsers = users.length > 0
-    ? users
-    : db.prepare('SELECT id FROM users').all() as { id: number }[];
+  const targetUsers =
+    users.length > 0 ? users : (db.prepare('SELECT id FROM users').all() as { id: number }[]);
 
   if (targetUsers.length === 0) return;
 
-  const summary = `${node.name}节点激活，近期综合涨幅${change10d}%`;
+  const summary = `${node.name}节点激活，长周期主涨幅${primaryChangePct}%`;
   const detail = JSON.stringify({
     nodeIndex: node.index,
     symbol: node.symbol,
     name: node.name,
     shortName: node.shortName,
-    change10d,
+    change10d: primaryChangePct,
     chainStatus: chainStatus?.nodes ?? [],
   });
   const now = new Date().toISOString();
@@ -298,13 +411,19 @@ function createActivationMessages(
   insertAll();
 }
 
+type HystRow = {
+  node_index: number;
+  status: string;
+  pending_status: string | null;
+  pending_count: number | null;
+};
+
 /**
- * Main update function: calculate 10d change for all nodes, detect activations, persist.
+ * Main update: 主窗排名 + 辅窗 + 滞回写库；激活消息在「已提交状态」由 inactive→activated 时触发。
  */
 export async function updateChainStatus(db?: Database.Database): Promise<ChainStatusResponse> {
   const database = db || getDatabase();
 
-  // Get previous status for activation detection
   const previousStatus = getCurrentChainStatus(database);
   const previousMap = new Map<number, ChainNodeStatus>();
   if (previousStatus) {
@@ -316,63 +435,140 @@ export async function updateChainStatus(db?: Database.Database): Promise<ChainSt
     }
   }
 
-  // Calculate 60d change for all nodes
-  const changeData: { node: typeof CHAIN_NODES[number]; change10d: number }[] = [];
+  const hystRows = database
+    .prepare(
+      `SELECT node_index, status, pending_status, pending_count FROM chain_status`
+    )
+    .all() as HystRow[];
+  const hystMap = new Map<number, { committed: ChainNodeStatus; pending: ChainNodeStatus | null; count: number }>();
+  for (const h of hystRows) {
+    hystMap.set(h.node_index, {
+      committed: h.status as ChainNodeStatus,
+      pending: (h.pending_status as ChainNodeStatus | null) ?? null,
+      count: h.pending_count ?? 0,
+    });
+  }
+
+  type NodeCalc = {
+    node: typeof CHAIN_NODES[number];
+    primary: number;
+    aux: number;
+    primaryDays: number;
+    maxHist: number;
+    windowNote: string;
+  };
+
+  const calcs: NodeCalc[] = [];
 
   for (const node of CHAIN_NODES) {
     try {
-      const change10d = await calculateCompositeChange(node.symbol, database);
-      changeData.push({ node, change10d });
+      const pw = await calculatePrimaryWindowChange(node.symbol, database);
+      const aux = await calculateNdChange(node.symbol, AUX_TRADING_DAYS, database);
+      calcs.push({
+        node,
+        primary: pw.change,
+        aux,
+        primaryDays: pw.primaryDaysUsed,
+        maxHist: pw.maxHistoryDays,
+        windowNote: pw.windowNote,
+      });
     } catch {
-      // If one node fails, still include it with 0 change
-      changeData.push({ node, change10d: 0 });
+      calcs.push({
+        node,
+        primary: 0,
+        aux: 0,
+        primaryDays: 0,
+        maxHist: 0,
+        windowNote: '无数据',
+      });
     }
   }
 
-  // Assign status by relative ranking (not absolute thresholds)
-  const rankingInput = changeData.map(d => ({ index: d.node.index, change: d.change10d }));
+  const rankingInput = calcs.map(c => ({ index: c.node.index, change: c.primary }));
   const statusMap = assignStatusByRanking(rankingInput);
-
-  const results = changeData.map(d => ({
-    node: d.node,
-    change10d: d.change10d,
-    status: statusMap.get(d.node.index) || 'inactive' as ChainNodeStatus,
-  }));
 
   const now = new Date().toISOString();
 
-  // Persist to chain_status table (INSERT OR REPLACE since PRIMARY KEY is node_index)
   const stmt = database.prepare(
-    `INSERT OR REPLACE INTO chain_status (node_index, symbol, name, short_name, status, change_10d, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`
+    `INSERT OR REPLACE INTO chain_status (
+       node_index, symbol, name, short_name, status, change_10d, change_aux,
+       primary_days_used, max_history_days, window_note, pending_status, pending_count, updated_at
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   );
 
+  const committedResults: {
+    node: typeof CHAIN_NODES[number];
+    primary: number;
+    aux: number;
+    primaryDays: number;
+    maxHist: number;
+    windowNote: string;
+    status: ChainNodeStatus;
+  }[] = [];
+
   const persistAll = database.transaction(() => {
-    for (const r of results) {
-      stmt.run(r.node.index, r.node.symbol, r.node.name, r.node.shortName, r.status, r.change10d, now);
+    for (const c of calcs) {
+      const raw = statusMap.get(c.node.index) || 'inactive';
+      const prev = hystMap.get(c.node.index);
+      const committedPrev = prev?.committed ?? null;
+      const { status, pendingStatus, pendingCount } = applyHysteresis(
+        raw,
+        committedPrev,
+        prev?.pending ?? null,
+        prev?.count ?? 0
+      );
+
+      stmt.run(
+        c.node.index,
+        c.node.symbol,
+        c.node.name,
+        c.node.shortName,
+        status,
+        c.primary,
+        c.aux,
+        c.primaryDays,
+        c.maxHist,
+        c.windowNote,
+        pendingStatus,
+        pendingCount,
+        now
+      );
+
+      committedResults.push({
+        node: c.node,
+        primary: c.primary,
+        aux: c.aux,
+        primaryDays: c.primaryDays,
+        maxHist: c.maxHist,
+        windowNote: c.windowNote,
+        status,
+      });
     }
   });
 
   persistAll();
 
-  // Build current status response
   const currentStatus: ChainStatusResponse = {
-    nodes: results.map(r => ({
+    nodes: committedResults.map(r => ({
       symbol: r.node.symbol,
       name: r.node.name,
       shortName: r.node.shortName,
       status: r.status,
-      change10d: r.change10d,
-      label: generateLabel(r.change10d, r.status),
+      change10d: r.primary,
+      changeAux: r.aux,
+      primaryWindowDays: r.primaryDays,
+      maxHistoryDays: r.maxHist,
+      windowNote: r.windowNote,
+      label: generateLabel(r.primary, r.status, r.aux),
     })),
     updatedAt: now,
+    methodSummary: CHAIN_METHOD_SUMMARY,
   };
 
-  // Detect activations: inactive → activated
-  for (const r of results) {
+  for (const r of committedResults) {
     const prevStatus = previousMap.get(r.node.index);
     if (prevStatus === 'inactive' && r.status === 'activated') {
-      createActivationMessages(r.node, r.change10d, currentStatus, database);
+      createActivationMessages(r.node, r.primary, currentStatus, database);
     }
   }
 

@@ -1,4 +1,4 @@
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import CommodityChain from './CommodityChain';
 import * as chainApi from '../api/chain';
@@ -46,7 +46,7 @@ describe('CommodityChain', () => {
     await waitFor(() => {
       expect(screen.getByText('📦 商品传导链')).toBeInTheDocument();
     });
-    expect(screen.getByText('5年轮动')).toBeInTheDocument();
+    expect(screen.getByText('主3～5年')).toBeInTheDocument();
   });
 
   it('renders all 7 chain nodes with shortNames in circles', async () => {
@@ -155,5 +155,52 @@ describe('CommodityChain', () => {
     // 可埋伏 appears in legend AND in node labels, so check it exists
     const items = screen.getAllByText('可埋伏');
     expect(items.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('opens detail modal for full aux and window text, closes via button and backdrop', async () => {
+    const longNote = '数据有限·主排名按实际约 100 日估算，仅供跟踪参考。';
+    const data: chainApi.ChainStatusData = {
+      ...mockChainData,
+      nodes: mockChainData.nodes.map((n, i) =>
+        i === 0
+          ? {
+              ...n,
+              changeAux: 8.2,
+              primaryWindowDays: 1000,
+              maxHistoryDays: 1100,
+              windowNote: longNote,
+            }
+          : n
+      ),
+    };
+    mockGetChainStatus.mockResolvedValue(data);
+    render(<CommodityChain />);
+    await waitFor(() => expect(screen.getByTestId('chain-node-518880')).toBeInTheDocument());
+    expect(screen.queryByTestId('chain-detail-dialog')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId('chain-node-518880'));
+    await waitFor(() => expect(screen.getByTestId('chain-detail-dialog')).toBeInTheDocument());
+    expect(screen.getByText(longNote)).toBeInTheDocument();
+    expect(screen.getByText('主窗口约 1000 个交易日')).toBeInTheDocument();
+    expect(screen.getByText('+8.2%')).toBeInTheDocument();
+    expect(screen.getByText('可用历史约 1100 个交易日')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByLabelText('关闭'));
+    await waitFor(() => expect(screen.queryByTestId('chain-detail-dialog')).not.toBeInTheDocument());
+
+    fireEvent.click(screen.getByTestId('chain-node-518880'));
+    await waitFor(() => expect(screen.getByTestId('chain-detail-dialog')).toBeInTheDocument());
+    fireEvent.click(screen.getByTestId('chain-detail-backdrop'));
+    await waitFor(() => expect(screen.queryByTestId('chain-detail-dialog')).not.toBeInTheDocument());
+  });
+
+  it('closes detail modal on Escape', async () => {
+    mockGetChainStatus.mockResolvedValue(mockChainData);
+    render(<CommodityChain />);
+    await waitFor(() => expect(screen.getByTestId('chain-node-518880')).toBeInTheDocument());
+    fireEvent.click(screen.getByTestId('chain-node-518880'));
+    await waitFor(() => expect(screen.getByTestId('chain-detail-dialog')).toBeInTheDocument());
+    fireEvent.keyDown(window, { key: 'Escape', code: 'Escape' });
+    await waitFor(() => expect(screen.queryByTestId('chain-detail-dialog')).not.toBeInTheDocument());
   });
 });

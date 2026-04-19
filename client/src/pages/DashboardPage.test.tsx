@@ -1,6 +1,6 @@
 import { render, screen } from '@testing-library/react';
 import '@testing-library/jest-dom';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, Routes, Route } from 'react-router-dom';
 import DashboardPage from './DashboardPage';
 
 jest.mock('../api/messages', () => ({
@@ -11,6 +11,11 @@ jest.mock('../api/messages', () => ({
 jest.mock('../api/positions', () => ({
   getPositions: jest.fn().mockResolvedValue([]),
   createPosition: jest.fn(),
+  searchStockCandidates: jest.fn().mockResolvedValue([]),
+}));
+
+jest.mock('../api/market', () => ({
+  fetchQuotesForStockCodes: jest.fn().mockResolvedValue([]),
 }));
 
 jest.mock('../api/marketEnv', () => ({
@@ -64,8 +69,10 @@ const dailyPickMessage = {
 
 function renderDashboard() {
   return render(
-    <MemoryRouter>
-      <DashboardPage />
+    <MemoryRouter initialEntries={['/dashboard']}>
+      <Routes>
+        <Route path="/dashboard" element={<DashboardPage />} />
+      </Routes>
     </MemoryRouter>
   );
 }

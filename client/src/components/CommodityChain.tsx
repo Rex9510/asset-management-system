@@ -1,4 +1,5 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback, useRef, useLayoutEffect } from 'react';
+import { createPortal } from 'react-dom';
 import { getChainStatus, ChainNode, ChainStatusData } from '../api/chain';
 
 const statusColors: Record<string, { bg: string; color: string; border: string; tagBg: string }> = {
@@ -23,6 +24,9 @@ const CommodityChain: React.FC = () => {
   const [data, setData] = useState<ChainStatusData | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
+  const [detailNode, setDetailNode] = useState<ChainNode | null>(null);
+
+  const closeDetail = useCallback(() => setDetailNode(null), []);
 
   useEffect(() => {
     let cancelled = false;
@@ -34,13 +38,22 @@ const CommodityChain: React.FC = () => {
     return () => { cancelled = true; };
   }, []);
 
+  useEffect(() => {
+    if (!detailNode) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') closeDetail();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [detailNode, closeDetail]);
+
   if (error || (!loading && !data)) return null;
 
   return (
     <div style={styles.card} data-testid="commodity-chain-card">
       <div style={styles.header}>
         <span style={styles.title}>📦 商品传导链</span>
-        <span style={styles.period}>5年轮动</span>
+        <span style={styles.period}>主3～5年</span>
       </div>
       {loading ? (
         <div style={styles.skeleton} data-testid="chain-loading">
@@ -51,18 +64,29 @@ const CommodityChain: React.FC = () => {
           <div style={styles.chainRow} data-testid="chain-row">
             {data!.nodes.map((node, idx) => (
               <React.Fragment key={node.symbol}>
-                <ChainNodeCard node={node} />
+                <ChainNodeCard node={node} onOpenDetail={() => setDetailNode(node)} />
                 {idx < data!.nodes.length - 1 && (
                   <span style={{ ...styles.arrow, color: getArrowColor(data!.nodes, idx) }}>→</span>
                 )}
               </React.Fragment>
             ))}
           </div>
+          {detailNode &&
+            createPortal(
+              <ChainNodeDetailModal
+                node={detailNode}
+                onClose={closeDetail}
+              />,
+              document.body
+            )}
           <div style={styles.legend}>
             <span style={styles.legendItem}><span style={{ ...styles.legendDot, background: '#2ed573' }} />已走主升</span>
             <span style={styles.legendItem}><span style={{ ...styles.legendDot, background: '#ffa502' }} />传导中</span>
             <span style={styles.legendItem}><span style={{ ...styles.legendDot, background: '#6c5ce7' }} />可埋伏</span>
           </div>
+          {data!.methodSummary && (
+            <div style={styles.methodHint} data-testid="chain-method-hint">{data!.methodSummary}</div>
+          )}
         </>
       )}
     </div>
@@ -77,15 +101,18 @@ function getArrowColor(nodes: ChainNode[], idx: number): string {
   return '#ddd';
 }
 
-const ChainNodeCard: React.FC<{ node: ChainNode }> = ({ node }) => {
+const ChainNodeCard: React.FC<{ node: ChainNode; onOpenDetail: () => void }> = ({ node, onOpenDetail }) => {
   const colors = statusColors[node.status] || statusColors.inactive;
   const changeColor = node.change10d >= 0 ? '#e74c3c' : '#2ed573';
 
   return (
-    <div
-      style={styles.nodeWrapper}
+    <button
+      type="button"
+      style={{ ...styles.nodeButton, ...styles.nodeWrapper }}
       data-testid={`chain-node-${node.symbol}`}
       data-status={node.status}
+      aria-label={`${node.name} 详情`}
+      onClick={onOpenDetail}
     >
       <div style={{ ...styles.circle, background: colors.bg, border: `2px solid ${colors.border}` }}>
         <span style={{ ...styles.circleText, color: colors.color }}>{node.shortName}</span>
@@ -95,6 +122,79 @@ const ChainNodeCard: React.FC<{ node: ChainNode }> = ({ node }) => {
       <span style={{ ...styles.labelTag, background: colors.tagBg, color: colors.color }}>
         {node.label || statusLabel[node.status]}
       </span>
+      <span style={styles.detailCue}>明细</span>
+    </button>
+  );
+};
+
+function primaryWindowLabel(node: ChainNode): string {
+  if (node.primaryWindowDays != null && node.primaryWindowDays > 0) {
+    return `主窗口约 ${node.primaryWindowDays} 个交易日`;
+  }
+  return '主窗口约 3～5 年（按有效 K 线择优）';
+}
+
+const ChainNodeDetailModal: React.FC<{ node: ChainNode; onClose: () => void }> = ({ node, onClose }) => {
+  const colors = statusColors[node.status] || statusColors.inactive;
+  const changeColor = node.change10d >= 0 ? '#e74c3c' : '#2ed573';
+  const closeBtnRef = useRef<HTMLButtonElement>(null);
+  useLayoutEffect(() => {
+    closeBtnRef.current?.focus();
+  }, []);
+
+  return (
+    <div
+      style={styles.modalBackdrop}
+      role="presentation"
+      data-testid="chain-detail-backdrop"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="chain-detail-title"
+        style={styles.modalPanel}
+        data-testid="chain-detail-dialog"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div style={styles.modalHeader}>
+          <div>
+            <div id="chain-detail-title" style={styles.modalTitle}>
+              {node.name}{' '}
+              <span style={styles.modalSymbol}>{node.symbol}</span>
+            </div>
+            <div style={{ ...styles.modalStatusPill, background: colors.tagBg, color: colors.color }}>
+              {node.label || statusLabel[node.status]}
+            </div>
+          </div>
+          <button ref={closeBtnRef} type="button" style={styles.modalClose} onClick={onClose} aria-label="关闭">
+            ×
+          </button>
+        </div>
+        <div style={styles.modalSection}>
+          <div style={styles.modalDt}>主周期涨幅</div>
+          <div style={{ ...styles.modalHero, color: changeColor }}>{formatChange(node.change10d)}</div>
+          <div style={styles.modalDdMuted}>{primaryWindowLabel(node)}</div>
+          {node.maxHistoryDays != null && node.maxHistoryDays > 0 && (
+            <div style={styles.modalDdMuted}>可用历史约 {node.maxHistoryDays} 个交易日</div>
+          )}
+        </div>
+        {node.changeAux != null && !Number.isNaN(node.changeAux) && (
+          <div style={styles.modalSection}>
+            <div style={styles.modalDt}>辅提示（近 6 月）</div>
+            <div style={styles.modalDd}>{formatChange(node.changeAux)}</div>
+          </div>
+        )}
+        {node.windowNote && (
+          <div style={styles.modalSection}>
+            <div style={styles.modalDt}>窗口说明</div>
+            <div style={styles.modalDdWrap}>{node.windowNote}</div>
+          </div>
+        )}
+        <p style={styles.modalFoot}>横向列表仅保留核心信息；完整辅线与说明在此查看。</p>
+      </div>
     </div>
   );
 };
@@ -131,13 +231,23 @@ const styles: Record<string, React.CSSProperties> = {
     gap: '0',
     paddingBottom: '4px',
   },
+  nodeButton: {
+    border: 'none',
+    background: 'transparent',
+    padding: 0,
+    margin: 0,
+    font: 'inherit',
+    cursor: 'pointer',
+    WebkitTapHighlightColor: 'transparent',
+    textAlign: 'center' as const,
+  },
   nodeWrapper: {
     display: 'flex',
     flexDirection: 'column' as const,
     alignItems: 'center',
     flex: 1,
     minWidth: '0',
-    gap: '1px',
+    gap: '2px',
   },
   circle: {
     width: '30px',
@@ -156,16 +266,128 @@ const styles: Record<string, React.CSSProperties> = {
     fontWeight: 500,
   },
   changeText: {
-    fontSize: '9px',
+    fontSize: '10px',
     fontWeight: 700,
-    lineHeight: '1.2',
+    lineHeight: '1.25',
+  },
+  detailCue: {
+    fontSize: '8px',
+    color: '#bbb',
+    marginTop: '1px',
+    textDecoration: 'underline',
+    textUnderlineOffset: '2px',
+  },
+  methodHint: {
+    fontSize: '9px',
+    color: '#999',
+    textAlign: 'center' as const,
+    marginTop: '6px',
+    lineHeight: 1.35,
+    padding: '0 4px',
   },
   labelTag: {
     fontSize: '8px',
-    padding: '1px 3px',
-    borderRadius: '3px',
+    padding: '2px 4px',
+    borderRadius: '4px',
     whiteSpace: 'nowrap' as const,
     lineHeight: '1.4',
+    marginTop: '1px',
+  },
+  modalBackdrop: {
+    position: 'fixed',
+    inset: 0,
+    zIndex: 10000,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: '16px',
+    background: 'rgba(0,0,0,0.45)',
+  },
+  modalPanel: {
+    background: '#fff',
+    borderRadius: '14px',
+    maxWidth: '360px',
+    width: '100%',
+    maxHeight: 'min(85vh, 520px)',
+    overflowY: 'auto' as const,
+    boxShadow: '0 8px 32px rgba(0,0,0,0.18)',
+    padding: '16px',
+  },
+  modalHeader: {
+    display: 'flex',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    gap: '12px',
+    marginBottom: '14px',
+  },
+  modalTitle: {
+    fontSize: '17px',
+    fontWeight: 700,
+    color: '#222',
+    lineHeight: 1.3,
+  },
+  modalSymbol: {
+    fontSize: '13px',
+    fontWeight: 500,
+    color: '#888',
+  },
+  modalStatusPill: {
+    display: 'inline-block',
+    marginTop: '8px',
+    fontSize: '12px',
+    fontWeight: 600,
+    padding: '4px 10px',
+    borderRadius: '8px',
+  },
+  modalClose: {
+    flexShrink: 0,
+    border: 'none',
+    background: 'transparent',
+    fontSize: '26px',
+    lineHeight: 1,
+    color: '#999',
+    cursor: 'pointer',
+    padding: '0 4px',
+    marginTop: '-4px',
+  },
+  modalSection: {
+    marginBottom: '14px',
+  },
+  modalDt: {
+    fontSize: '12px',
+    fontWeight: 600,
+    color: '#666',
+    marginBottom: '6px',
+  },
+  modalHero: {
+    fontSize: '22px',
+    fontWeight: 700,
+    marginBottom: '6px',
+  },
+  modalDd: {
+    fontSize: '16px',
+    fontWeight: 600,
+    color: '#333',
+  },
+  modalDdMuted: {
+    fontSize: '12px',
+    color: '#888',
+    lineHeight: 1.45,
+    marginTop: '2px',
+  },
+  modalDdWrap: {
+    fontSize: '13px',
+    color: '#444',
+    lineHeight: 1.5,
+    wordBreak: 'break-word' as const,
+  },
+  modalFoot: {
+    fontSize: '11px',
+    color: '#aaa',
+    margin: '0',
+    lineHeight: 1.45,
+    paddingTop: '4px',
+    borderTop: '1px solid #eee',
   },
   arrow: {
     fontSize: '10px',

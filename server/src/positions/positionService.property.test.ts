@@ -35,13 +35,13 @@ const validShares = fc.integer({ min: 1, max: 100000 });
 const validBuyDate = fc.date({ min: new Date('2020-01-01'), max: new Date('2025-12-31') }).map(d => d.toISOString().split('T')[0]);
 
 describe('属性测试：持仓 CRUD 往返', () => {
-  it('对任意有效持仓数据，创建后查询应返回相同数据', () => {
-    fc.assert(
-      fc.property(validStockCode, validStockName, validCostPrice, validShares, validBuyDate,
-        (stockCode, stockName, costPrice, shares, buyDate) => {
+  it('对任意有效持仓数据，创建后查询应返回相同数据', async () => {
+    await fc.assert(
+      fc.asyncProperty(validStockCode, validStockName, validCostPrice, validShares, validBuyDate,
+        async (stockCode, stockName, costPrice, shares, buyDate) => {
           const db = makeDb();
           addUser(db, 1);
-          const created = createPosition(1, { stockCode, stockName, positionType: 'holding', costPrice, shares, buyDate }, db);
+          const created = await createPosition(1, { stockCode, stockName, positionType: 'holding', costPrice, shares, buyDate }, db);
           expect(created.stockCode).toBe(stockCode);
           expect(created.stockName).toBe(stockName);
           expect(created.costPrice).toBe(costPrice);
@@ -61,15 +61,16 @@ describe('属性测试：持仓 CRUD 往返', () => {
 });
 
 describe('属性测试：无效股票代码拒绝', () => {
-  it('对任意非A股代码，创建持仓应被拒绝', () => {
+  it('对任意非A股代码，创建持仓应被拒绝', async () => {
     // Generate codes that don't match valid prefixes
     const invalidCode = fc.string({ minLength: 1, maxLength: 10 }).filter(s => !isValidStockCode(s));
-    fc.assert(
-      fc.property(invalidCode, (code) => {
+    await fc.assert(
+      fc.asyncProperty(invalidCode, async (code) => {
         const db = makeDb();
         addUser(db, 1);
-        expect(() => createPosition(1, { stockCode: code, stockName: '测试', positionType: 'holding', costPrice: 10, shares: 100, buyDate: '2024-01-01' }, db))
-          .toThrow('股票代码无效');
+        await expect(
+          createPosition(1, { stockCode: code, stockName: '测试', positionType: 'holding', costPrice: 10, shares: 100, buyDate: '2024-01-01' }, db)
+        ).rejects.toThrow('股票代码无效');
       }),
       { numRuns: 100 }
     );
@@ -95,13 +96,13 @@ describe('属性测试：盈亏计算正确性', () => {
 });
 
 describe('属性测试：持仓删除完整性', () => {
-  it('对任意已存在持仓，删除后查询应返回不存在', () => {
-    fc.assert(
-      fc.property(validStockCode, validStockName, validCostPrice, validShares, validBuyDate,
-        (stockCode, stockName, costPrice, shares, buyDate) => {
+  it('对任意已存在持仓，删除后查询应返回不存在', async () => {
+    await fc.assert(
+      fc.asyncProperty(validStockCode, validStockName, validCostPrice, validShares, validBuyDate,
+        async (stockCode, stockName, costPrice, shares, buyDate) => {
           const db = makeDb();
           addUser(db, 1);
-          const created = createPosition(1, { stockCode, stockName, positionType: 'holding', costPrice, shares, buyDate }, db);
+          const created = await createPosition(1, { stockCode, stockName, positionType: 'holding', costPrice, shares, buyDate }, db);
           deletePosition(created.id, 1, db);
           const fetched = getPositionById(created.id, 1, db);
           expect(fetched).toBeNull();

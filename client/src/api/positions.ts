@@ -31,6 +31,12 @@ export interface CreatePositionData {
 export interface UpdatePositionData {
   costPrice?: number;
   shares?: number;
+  buyDate?: string;
+}
+
+export interface StockCandidate {
+  stockCode: string;
+  stockName: string;
 }
 
 export async function getPositions(type?: 'holding' | 'watching'): Promise<Position[]> {
@@ -57,4 +63,11 @@ export async function deletePosition(id: number): Promise<void> {
 export async function getTodayPnl(): Promise<number> {
   const res = await apiClient.get<{ todayPnl: number }>('/positions/today-pnl');
   return res.data.todayPnl;
+}
+
+export async function searchStockCandidates(keyword: string): Promise<StockCandidate[]> {
+  const res = await apiClient.get<{ candidates: StockCandidate[] }>('/positions/search', {
+    params: { keyword },
+  });
+  return res.data.candidates;
 }

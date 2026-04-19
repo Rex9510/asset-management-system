@@ -6,6 +6,8 @@ import {
   getCurrentChainStatus,
   updateChainStatus,
   calculateCompositeChange,
+  applyHysteresis,
+  resolvePrimaryWindowDays,
   CHAIN_NODES,
 } from './commodityChainService';
 
@@ -201,6 +203,53 @@ describe('commodityChainService', () => {
       expect(result!.nodes[6].symbol).toBe('161129');
       expect(result!.nodes[6].name).toBe('原油');
       expect(result!.updatedAt).toBe(now);
+      expect(result!.methodSummary).toContain('主排名');
+    });
+
+    it('prefers stored window_note over recomputed label from max_history_days', () => {
+      const now = new Date().toISOString();
+      const stmt = db.prepare(
+        `INSERT INTO chain_status (node_index, symbol, name, short_name, status, change_10d, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?)`
+      );
+      for (const node of CHAIN_NODES) {
+        stmt.run(node.index, node.symbol, node.name, node.shortName, 'inactive', 0, now);
+      }
+      db.prepare(
+        `UPDATE chain_status SET max_history_days = 2000, window_note = ? WHERE node_index = 0`
+      ).run('计算当时口径快照');
+
+      const result = getCurrentChainStatus(db);
+      expect(result!.nodes[0].windowNote).toBe('计算当时口径快照');
+    });
+  });
+
+  describe('resolvePrimaryWindowDays', () => {
+    it('picks 5y cap when history is long', () => {
+      const r = resolvePrimaryWindowDays(2000);
+      expect(r.primaryDays).toBe(1250);
+      expect(r.windowNote).toContain('5年');
+    });
+    it('picks 3y floor in mid band', () => {
+      const r = resolvePrimaryWindowDays(800);
+      expect(r.primaryDays).toBe(750);
+    });
+  });
+
+  describe('applyHysteresis', () => {
+    it('commits immediately when no prior committed state', () => {
+      const o = applyHysteresis('activated', null, null, 0);
+      expect(o.status).toBe('activated');
+      expect(o.pendingStatus).toBeNull();
+    });
+    it('requires two matching raw proposals to switch', () => {
+      const a = applyHysteresis('activated', 'inactive', null, 0);
+      expect(a.status).toBe('inactive');
+      expect(a.pendingStatus).toBe('activated');
+      expect(a.pendingCount).toBe(1);
+      const b = applyHysteresis('activated', 'inactive', 'activated', 1);
+      expect(b.status).toBe('activated');
+      expect(b.pendingStatus).toBeNull();
     });
   });
 
@@ -258,6 +307,8 @@ describe('commodityChainService', () => {
       seedKlineData(db, '161129', { count: 70, priceGrowth: -5 });
 
       await updateChainStatus(db);
+      // 滞回：需连续两次相同「原始排名状态」才提交为 activated，第三次运行才触发 inactive→activated 消息
+      await updateChainStatus(db);
 
       // Verify chain_activation message was created for gold (inactive → activated)
       const messages = db.prepare(
@@ -270,6 +321,7 @@ describe('commodityChainService', () => {
       expect(goldMsg!.user_id).toBe(userId);
       expect(goldMsg!.summary).toContain('黄金');
       expect(goldMsg!.summary).toContain('激活');
+      expect(goldMsg!.summary).toContain('长周期');
     });
 
     it('should not create messages when status stays the same', async () => {
@@ -316,6 +368,7 @@ describe('commodityChainService', () => {
       seedKlineData(db, '159886', { count: 70, priceGrowth: -2 });
       seedKlineData(db, '161129', { count: 70, priceGrowth: -8 });
       await updateChainStatus(db);
+      await updateChainStatus(db);
 
       // Only inactive→activated triggers messages, not transmitting→activated
       const messages = db.prepare(
@@ -348,6 +401,7 @@ describe('commodityChainService', () => {
       seedKlineData(db, '516020', { count: 70, priceGrowth: 5 });
       seedKlineData(db, '159886', { count: 70, priceGrowth: 0 });
       seedKlineData(db, '161129', { count: 70, priceGrowth: -5 });
+      await updateChainStatus(db);
       await updateChainStatus(db);
 
       const messages = db.prepare(

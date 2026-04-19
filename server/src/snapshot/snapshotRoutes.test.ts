@@ -28,7 +28,7 @@ function createApp() {
 async function registerAndGetToken(app: express.Express): Promise<string> {
   const res = await request(app)
     .post('/api/auth/register')
-    .send({ username: 'testuser', password: 'pass123' });
+    .send({ username: 'testuser', password: 'pass123', agreedTerms: true });
   return res.body.token;
 }
 
@@ -80,6 +80,7 @@ describe('Snapshot Routes', () => {
       expect(res.status).toBe(200);
       expect(res.body).toEqual({
         profitCurve: [],
+        profitCurveMeta: { hasCalendarGaps: false },
         sectorDistribution: [],
         stockPnl: [],
       });
@@ -98,6 +99,13 @@ describe('Snapshot Routes', () => {
       expect(res.body.profitCurve[0]).toHaveProperty('date');
       expect(res.body.profitCurve[0]).toHaveProperty('totalValue');
       expect(res.body.profitCurve[0]).toHaveProperty('totalProfit');
+      expect(res.body.profitCurve[0]).toHaveProperty('totalCost');
+      expect(res.body.profitCurve[0]).toHaveProperty('returnOnCostPct');
+      expect(res.body.profitCurve[0]).toHaveProperty('dayMvChangePct');
+      expect(res.body.profitCurve[0]).toHaveProperty('dayProfitDelta');
+      expect(res.body.profitCurveMeta).toEqual(
+        expect.objectContaining({ hasCalendarGaps: expect.any(Boolean) })
+      );
 
       expect(Array.isArray(res.body.sectorDistribution)).toBe(true);
       expect(res.body.sectorDistribution.length).toBeGreaterThan(0);
@@ -126,6 +134,17 @@ describe('Snapshot Routes', () => {
 
       const res = await request(app)
         .get('/api/snapshot/chart-data?period=90d')
+        .set('Authorization', `Bearer ${token}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body).toHaveProperty('profitCurve');
+    });
+
+    it('should accept period=365d', async () => {
+      seedSnapshotData(1);
+
+      const res = await request(app)
+        .get('/api/snapshot/chart-data?period=365d')
         .set('Authorization', `Bearer ${token}`);
 
       expect(res.status).toBe(200);

@@ -1,4 +1,5 @@
 import React, { useEffect, useState, useCallback, useMemo } from 'react';
+import { useLocation } from 'react-router-dom';
 import { getPositions, Position } from '../api/positions';
 import StockCard from '../components/StockCard';
 import PositionForm from '../components/PositionForm';
@@ -7,6 +8,7 @@ import { useMarketSSE } from '../hooks/useMarketSSE';
 type TabType = 'holding' | 'watching';
 
 const PositionPage: React.FC = () => {
+  const { pathname } = useLocation();
   const [activeTab, setActiveTab] = useState<TabType>('holding');
   const [positions, setPositions] = useState<Position[]>([]);
   const [loading, setLoading] = useState(true);
@@ -15,7 +17,7 @@ const PositionPage: React.FC = () => {
   const [editingPosition, setEditingPosition] = useState<Position | null>(null);
 
   const stockCodes = useMemo(() => positions.map(p => p.stockCode), [positions]);
-  const { quotes, isDelayed } = useMarketSSE(stockCodes);
+  const { quotes, isDelayed, refreshQuotes } = useMarketSSE(stockCodes);
 
   const mergedPositions = useMemo(() => {
     return positions.map(pos => {
@@ -26,7 +28,7 @@ const PositionPage: React.FC = () => {
         ? (currentPrice - pos.costPrice) * pos.shares : pos.profitLoss;
       const profitLossPercent = pos.costPrice != null && pos.costPrice > 0
         ? ((currentPrice - pos.costPrice) / pos.costPrice) * 100 : pos.profitLossPercent;
-      return { ...pos, currentPrice, profitLoss, profitLossPercent };
+      return { ...pos, currentPrice, changePercent: quote.changePercent, profitLoss, profitLossPercent };
     });
   }, [positions, quotes]);
 
@@ -61,19 +63,25 @@ const PositionPage: React.FC = () => {
     try {
       const data = await getPositions(tab);
       setPositions(data);
+      await refreshQuotes(data.map((p) => p.stockCode));
     } catch {
       setError('加载失败，请稍后重试');
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [refreshQuotes]);
 
   useEffect(() => {
+    if (pathname !== '/position') return;
     fetchPositions(activeTab);
-  }, [activeTab, fetchPositions]);
+  }, [pathname, activeTab, fetchPositions]);
 
   useEffect(() => {
-    const handleTabRefresh = () => fetchPositions(activeTab);
+    const handleTabRefresh = (e: Event) => {
+      const key = (e as CustomEvent<{ tab: string }>).detail?.tab;
+      if (key !== 'position') return;
+      fetchPositions(activeTab);
+    };
     window.addEventListener('tab-switch-refresh', handleTabRefresh);
     return () => window.removeEventListener('tab-switch-refresh', handleTabRefresh);
   }, [activeTab, fetchPositions]);

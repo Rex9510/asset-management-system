@@ -1,8 +1,8 @@
 import Database from 'better-sqlite3';
 
-// Mock ensureStockHistory to avoid network calls in tests
+// Mock fetchAndSaveStockHistory to avoid network calls in tests
 jest.mock('../market/historyService', () => ({
-  ensureStockHistory: jest.fn().mockResolvedValue(0),
+  fetchAndSaveStockHistory: jest.fn().mockResolvedValue(0),
 }));
 
 import {
@@ -19,6 +19,7 @@ import {
   deleteMonitor,
   updateAllMonitors,
   get3YearHistory,
+  pickAdaptiveAnalysisWindow,
   fixBrokenMonitorCodes,
   CycleStatus,
 } from './cycleDetectorService';
@@ -414,7 +415,7 @@ describe('generateDescription', () => {
       low_price: 48,
       volume: 1000000,
     }));
-    const desc = generateDescription(history, 'bottom', '约3年', ['RSI低于30超卖', '价格处于近3年最低30%区间']);
+    const desc = generateDescription(history, 'bottom', '约3年', ['RSI低于30超卖', '价格处于近3年最低30%区间'], undefined, 3);
     expect(desc).toContain('横盘末期');
     expect(desc).toContain('RSI低于30超卖');
   });
@@ -677,6 +678,28 @@ describe('get3YearHistory', () => {
   });
 });
 
+describe('pickAdaptiveAnalysisWindow', () => {
+  it('returns a bounded window and label for multi-year synthetic history', () => {
+    const baseDate = new Date(2020, 0, 2);
+    const history = Array.from({ length: 750 }, (_, i) => {
+      const d = new Date(baseDate.getTime() + i * 86400000);
+      const p = 50 + 30 * Math.sin((i * 2 * Math.PI) / 250);
+      return {
+        trade_date: d.toISOString().slice(0, 10),
+        close_price: p,
+        high_price: p * 1.02,
+        low_price: p * 0.98,
+        volume: 1_000_000,
+      };
+    });
+    const { windowHistory, labelYears, targetYears } = pickAdaptiveAnalysisWindow(history, '600519');
+    expect(windowHistory.length).toBeGreaterThanOrEqual(20);
+    expect(labelYears).not.toBeNull();
+    expect(targetYears).toBeGreaterThan(0);
+    expect(targetYears).toBeLessThanOrEqual(10);
+  });
+});
+
 // --- detectBottomSignals integration test ---
 
 describe('detectBottomSignals', () => {
@@ -698,6 +721,8 @@ describe('detectBottomSignals', () => {
     expect(['bottom', 'falling', 'rising', 'high']).toContain(result.status);
     expect(typeof result.description).toBe('string');
     expect(result.currentPhase).toBeTruthy();
+    expect(result.analysisWindowYears === null || typeof result.analysisWindowYears === 'number').toBe(true);
+    expect(result.anchorPrice).not.toBeNull();
   });
 
   it('returns falling with no signals for insufficient data', () => {
@@ -705,6 +730,7 @@ describe('detectBottomSignals', () => {
     const result = detectBottomSignals('600519', db);
     expect(result.signals).toEqual([]);
     expect(result.status).toBe('falling');
+    expect(result.anchorPrice).not.toBeNull();
   });
 });
 
@@ -767,6 +793,23 @@ describe('fixBrokenMonitorCodes', () => {
 
     const monitors = getMonitors(1, db);
     expect(monitors).toHaveLength(0);
+  });
+
+  it('drops broken row when user already has same resolved stock_code', () => {
+    db.prepare(
+      `INSERT INTO cycle_monitors (user_id, stock_code, stock_name, status, updated_at)
+       VALUES (1, '515220', '煤炭ETF', 'falling', '2026-01-01')`
+    ).run();
+    db.prepare(
+      `INSERT INTO cycle_monitors (user_id, stock_code, stock_name, status, updated_at)
+       VALUES (1, '煤炭ETF', '煤炭ETF', 'falling', '2026-01-01')`
+    ).run();
+
+    fixBrokenMonitorCodes(db);
+
+    const monitors = getMonitors(1, db);
+    expect(monitors).toHaveLength(1);
+    expect(monitors[0].stockCode).toBe('515220');
   });
 
   it('fixes monitors via ETF_NAME_TO_CODE fallback when not in market_cache or hs300', () => {
@@ -839,6 +882,16 @@ describe('addMonitor name lookup', () => {
     const monitor = await addMonitor(1, '化工ETF', cleanDb);
     expect(monitor.stockCode).toBe('516020');
     expect(monitor.stockName).toBe('化工ETF');
+    cleanDb.close();
+  });
+
+  it('resolves predefined ETF with different letter case (煤炭etf → 515220)', async () => {
+    const cleanDb = createTestDb();
+    generateHistory('515220', 800, (i) => 1 + Math.sin(i / 50) * 0.2, undefined, cleanDb);
+    const monitor = await addMonitor(1, '煤炭etf', cleanDb);
+    expect(monitor.stockCode).toBe('515220');
+    expect(monitor.stockName).toBe('煤炭ETF');
+    expect(monitor.description).not.toContain('历史数据不足');
     cleanDb.close();
   });
 });

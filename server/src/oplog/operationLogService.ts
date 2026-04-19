@@ -8,8 +8,9 @@ export interface LogOperationInput {
   operationType: 'create' | 'update' | 'delete';
   stockCode: string;
   stockName: string;
-  price?: number;
-  shares?: number;
+  /** 缺失时写入 NULL（如自选、删除前无成本） */
+  price?: number | null;
+  shares?: number | null;
   aiSummary?: string;
 }
 
