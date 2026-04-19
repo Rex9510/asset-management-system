@@ -8,7 +8,7 @@ router.use(authMiddleware);
 // GET /api/daily-pick/tracking
 router.get('/tracking', (req: Request, res: Response, next: NextFunction) => {
   try {
-    const trackings = getTrackingList();
+    const trackings = getTrackingList(req.user!.id);
     res.json({ trackings });
   } catch (err) {
     next(err);
@@ -18,7 +18,7 @@ router.get('/tracking', (req: Request, res: Response, next: NextFunction) => {
 // GET /api/daily-pick/accuracy
 router.get('/accuracy', (req: Request, res: Response, next: NextFunction) => {
   try {
-    const stats = getAccuracyStats();
+    const stats = getAccuracyStats(req.user!.id);
     res.json(stats);
   } catch (err) {
     next(err);

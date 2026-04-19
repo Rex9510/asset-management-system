@@ -172,18 +172,19 @@ export async function trackDailyPicks(db?: Database.Database): Promise<void> {
 }
 
 /**
- * Get all tracking records with current status, sorted by tracked_at DESC.
+ * Get tracking records for a user (via original daily_pick message), sorted by tracked_at DESC.
  */
-export function getTrackingList(db?: Database.Database): TrackingRecord[] {
+export function getTrackingList(userId: number, db?: Database.Database): TrackingRecord[] {
   const database = db || getDatabase();
 
   const rows = database.prepare(`
-    SELECT pick_message_id, stock_code, stock_name, pick_date, pick_price,
-           tracking_days, tracked_price, return_percent, tracked_at
-    FROM daily_pick_tracking
-    WHERE tracked_price IS NOT NULL
-    ORDER BY tracked_at DESC
-  `).all() as {
+    SELECT d.pick_message_id, d.stock_code, d.stock_name, d.pick_date, d.pick_price,
+           d.tracking_days, d.tracked_price, d.return_percent, d.tracked_at
+    FROM daily_pick_tracking d
+    INNER JOIN messages m ON m.id = d.pick_message_id
+    WHERE d.tracked_price IS NOT NULL AND m.user_id = ?
+    ORDER BY d.tracked_at DESC
+  `).all(userId) as {
     pick_message_id: number;
     stock_code: string;
     stock_name: string;
@@ -215,29 +216,35 @@ export function getTrackingList(db?: Database.Database): TrackingRecord[] {
  * - lossCount = picks where latest tracking return <= 0
  * - avgReturn = arithmetic mean of all return_percent values
  * - winRate = profitCount / totalPicks
+ *
+ * Scoped to picks owned by `userId` (join messages on pick_message_id).
  */
-export function getAccuracyStats(db?: Database.Database): AccuracyStats {
+export function getAccuracyStats(userId: number, db?: Database.Database): AccuracyStats {
   const database = db || getDatabase();
 
-  // Get all completed tracking records
+  // Get all completed tracking records for this user's picks
   const allReturns = database.prepare(`
-    SELECT return_percent FROM daily_pick_tracking
-    WHERE tracked_price IS NOT NULL
-  `).all() as { return_percent: number }[];
+    SELECT d.return_percent
+    FROM daily_pick_tracking d
+    INNER JOIN messages m ON m.id = d.pick_message_id
+    WHERE d.tracked_price IS NOT NULL AND m.user_id = ?
+  `).all(userId) as { return_percent: number }[];
 
   // Get latest tracking per pick (highest tracking_days with completed data)
   const latestPerPick = database.prepare(`
-    SELECT pick_message_id, return_percent
+    SELECT t1.pick_message_id, t1.return_percent
     FROM daily_pick_tracking t1
-    WHERE tracked_price IS NOT NULL
-      AND tracking_days = (
+    INNER JOIN messages m ON m.id = t1.pick_message_id
+    WHERE t1.tracked_price IS NOT NULL
+      AND m.user_id = ?
+      AND t1.tracking_days = (
         SELECT MAX(t2.tracking_days)
         FROM daily_pick_tracking t2
         WHERE t2.pick_message_id = t1.pick_message_id
           AND t2.tracked_price IS NOT NULL
       )
-    GROUP BY pick_message_id
-  `).all() as { pick_message_id: number; return_percent: number }[];
+    GROUP BY t1.pick_message_id
+  `).all(userId) as { pick_message_id: number; return_percent: number }[];
 
   const totalPicks = latestPerPick.length;
 

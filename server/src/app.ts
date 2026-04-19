@@ -1,6 +1,6 @@
 import express from 'express';
-import cors from 'cors';
 import path from 'path';
+import { buildCorsMiddleware } from './middleware/corsConfig';
 import { errorHandler } from './middleware/errorHandler';
 import authRoutes from './auth/authRoutes';
 import positionRoutes from './positions/positionRoutes';
@@ -30,7 +30,11 @@ import userSettingsRoutes from './settings/userSettingsRoutes';
 
 const app = express();
 
-app.use(cors());
+if (process.env.TRUST_PROXY === '1') {
+  app.set('trust proxy', 1);
+}
+
+app.use(buildCorsMiddleware());
 app.use(express.json());
 
 app.get('/api/health', (_req, res) => {
@@ -72,7 +76,14 @@ app.use(express.static(clientDistPath));
 app.get('*', (req, res) => {
   if (!req.path.startsWith('/api/')) {
     res.sendFile(path.join(clientDistPath, 'index.html'));
+    return;
   }
+  res.status(404).json({
+    error: {
+      code: 'NOT_FOUND',
+      message: '接口不存在',
+    },
+  });
 });
 
 // Global error handling middleware (must be registered after all routes)

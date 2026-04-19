@@ -556,24 +556,28 @@ export async function generateDeepReportAsync(
 }
 
 /**
- * Get a specific report by ID.
+ * Get a specific report by ID (scoped to the owning user).
  */
 export function getDeepReport(
   reportId: number,
+  userId: number,
   db?: Database.Database
 ): DeepReport | null {
   const database = db || getDatabase();
-  const row = database.prepare('SELECT * FROM deep_reports WHERE id = ?').get(reportId) as DeepReportRow | undefined;
+  const row = database
+    .prepare('SELECT * FROM deep_reports WHERE id = ? AND user_id = ?')
+    .get(reportId, userId) as DeepReportRow | undefined;
   return row ? toDeepReport(row) : null;
 }
 
 /**
- * Get report history, optionally filtered by stockCode.
+ * Get report history for a user, optionally filtered by stockCode.
  */
 export function getDeepReportHistory(
   stockCode: string | undefined,
   page: number,
   limit: number,
+  userId: number,
   db?: Database.Database
 ): { reports: DeepReport[]; total: number; hasMore: boolean } {
   const database = db || getDatabase();
@@ -582,13 +586,13 @@ export function getDeepReportHistory(
   const safeLimit = Math.max(1, Math.min(100, Math.floor(limit)));
   const offset = (safePage - 1) * safeLimit;
 
-  let countSql = 'SELECT COUNT(*) as total FROM deep_reports';
-  let querySql = 'SELECT * FROM deep_reports';
-  const params: (string | number)[] = [];
+  let countSql = 'SELECT COUNT(*) as total FROM deep_reports WHERE user_id = ?';
+  let querySql = 'SELECT * FROM deep_reports WHERE user_id = ?';
+  const params: (string | number)[] = [userId];
 
   if (stockCode) {
-    countSql += ' WHERE stock_code = ?';
-    querySql += ' WHERE stock_code = ?';
+    countSql += ' AND stock_code = ?';
+    querySql += ' AND stock_code = ?';
     params.push(stockCode);
   }
 

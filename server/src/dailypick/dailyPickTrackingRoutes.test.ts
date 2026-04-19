@@ -28,7 +28,7 @@ function createApp() {
 async function registerAndGetToken(app: express.Express): Promise<string> {
   const res = await request(app)
     .post('/api/auth/register')
-    .send({ username: 'testuser', password: 'pass123' });
+    .send({ username: 'testuser', password: 'pass123', agreedTerms: true });
   return res.body.token;
 }
 
@@ -150,6 +150,23 @@ describe('DailyPickTracking Routes', () => {
       expect(res.body.winRate).toBe(0);
       // avgReturn = mean of all records: (2.78 + -2.78) / 2 = 0
       expect(res.body.avgReturn).toBe(0);
+    });
+
+    it('should not include another user picks in accuracy', async () => {
+      const user = testDb.prepare('SELECT id FROM users WHERE username = ?').get('testuser') as { id: number };
+      seedTrackingData(testDb, user.id);
+
+      const reg = await request(app)
+        .post('/api/auth/register')
+        .send({ username: 'otheraccuracy', password: 'pass123', agreedTerms: true });
+      const tokenOther = reg.body.token as string;
+
+      const res = await request(app)
+        .get('/api/daily-pick/accuracy')
+        .set('Authorization', `Bearer ${tokenOther}`);
+
+      expect(res.status).toBe(200);
+      expect(res.body.totalPicks).toBe(0);
     });
   });
 });

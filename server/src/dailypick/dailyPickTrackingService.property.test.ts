@@ -99,7 +99,7 @@ test('totalPicks/profitCount/lossCount/winRate/avgReturn 计算正确', () => {
     ).run(t.pickId, t.days, t.returnPct);
   }
 
-  const stats = getAccuracyStats(db);
+  const stats = getAccuracyStats(1, db);
 
   expect(stats.totalPicks).toBe(5);
   expect(stats.profitCount).toBe(3);  // 15.5, 3.1, 20.0

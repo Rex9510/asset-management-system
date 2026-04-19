@@ -259,7 +259,7 @@ describe('getDeepReport', () => {
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'completed', ?)`
     ).run(1, '600000', '浦发银行', '结论', '基本面', '财务', '估值', '策略', 'deepseek-chat', 80, '2024-01-01', now);
 
-    const report = getDeepReport(Number(ins.lastInsertRowid), db);
+    const report = getDeepReport(Number(ins.lastInsertRowid), 1, db);
     expect(report).not.toBeNull();
     expect(report!.stockCode).toBe('600000');
     expect(report!.conclusion).toBe('结论');
@@ -268,7 +268,21 @@ describe('getDeepReport', () => {
 
   it('should return null for non-existent ID', () => {
     const db = makeDb();
-    expect(getDeepReport(999, db)).toBeNull();
+    addUser(db, 1);
+    expect(getDeepReport(999, 1, db)).toBeNull();
+  });
+
+  it('should return null when report belongs to another user', () => {
+    const db = makeDb();
+    addUser(db, 1);
+    addUser(db, 2);
+    const now = new Date().toISOString();
+    const ins = db.prepare(
+      `INSERT INTO deep_reports (user_id, stock_code, stock_name, conclusion, fundamentals, financials, valuation, strategy, ai_model, confidence, data_cutoff_date, status, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'completed', ?)`
+    ).run(1, '600000', '浦发银行', '结论', '基本面', '财务', '估值', '策略', 'deepseek-chat', 80, '2024-01-01', now);
+
+    expect(getDeepReport(Number(ins.lastInsertRowid), 2, db)).toBeNull();
   });
 });
 
@@ -289,12 +303,12 @@ describe('getDeepReportHistory', () => {
     const db = makeDb();
     seedReports(db, 10);
 
-    const page1 = getDeepReportHistory(undefined, 1, 3, db);
+    const page1 = getDeepReportHistory(undefined, 1, 3, 1, db);
     expect(page1.reports).toHaveLength(3);
     expect(page1.total).toBe(10);
     expect(page1.hasMore).toBe(true);
 
-    const page4 = getDeepReportHistory(undefined, 4, 3, db);
+    const page4 = getDeepReportHistory(undefined, 4, 3, 1, db);
     expect(page4.reports).toHaveLength(1);
     expect(page4.hasMore).toBe(false);
   });
@@ -303,14 +317,15 @@ describe('getDeepReportHistory', () => {
     const db = makeDb();
     seedReports(db, 10);
 
-    const result = getDeepReportHistory('600000', 1, 20, db);
+    const result = getDeepReportHistory('600000', 1, 20, 1, db);
     expect(result.total).toBe(5); // half are 600000
     expect(result.reports.every((r) => r.stockCode === '600000')).toBe(true);
   });
 
   it('should return empty for no results', () => {
     const db = makeDb();
-    const result = getDeepReportHistory(undefined, 1, 20, db);
+    addUser(db, 1);
+    const result = getDeepReportHistory(undefined, 1, 20, 1, db);
     expect(result.reports).toHaveLength(0);
     expect(result.total).toBe(0);
     expect(result.hasMore).toBe(false);
