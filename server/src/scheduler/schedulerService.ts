@@ -16,7 +16,7 @@ import { updateRotationStatus } from '../rotation/rotationService';
 import { updateChainStatus } from '../chain/commodityChainService';
 import { updateMarketEnv } from '../marketenv/marketEnvService';
 import { updateSentiment } from '../sentiment/sentimentService';
-import { updateAllMonitors, refreshAllMonitorPrices } from '../cycle/cycleDetectorService';
+import { updateAllMonitorsWithAI, refreshAllMonitorPrices } from '../cycle/cycleDetectorService';
 import { trackDailyPicks } from '../dailypick/dailyPickTrackingService';
 import { checkAllUsersConcentrationRisk } from '../concentration/concentrationService';
 import { takeAllUsersSnapshot } from '../snapshot/snapshotService';
@@ -278,7 +278,7 @@ export function getPostCloseTaskList(): PostCloseTask[] {
       hour: 16, minute: 40, name: '周期底部检测',
       execute: async (db) => {
         await refreshAllMonitorPrices(db);
-        updateAllMonitors(db);
+        await updateAllMonitorsWithAI(db);
       },
     },
     {
@@ -340,16 +340,18 @@ export async function executePostCloseTask(
 export async function runStartupDataRefresh(db?: Database.Database): Promise<void> {
   const database = db || getDatabase();
 
-  // 纯规则任务列表（跳过K线更新、每日关注追踪、操作复盘等依赖当日交易的任务）
+  // 纯规则任务列表（允许在非交易日用最近交易日价格补齐展示与追踪）
   const ruleBasedTasks: { name: string; execute: (d: Database.Database) => void | Promise<void> }[] = [
     { name: '估值分位数据更新', execute: async (d) => { await batchUpdateValuations(d, 500); } },
     { name: '板块轮动阶段判断', execute: async (d) => { await updateRotationStatus(d); } },
     { name: '商品传导链状态更新', execute: async (d) => { await updateChainStatus(d); } },
     { name: '大盘环境判断', execute: async (d) => { await updateMarketEnv(d); } },
     { name: '市场情绪指数计算', execute: (d) => { updateSentiment(d); } },
+    // 兜底补跑：若收盘后任务遗漏，启动时补齐 3/7/14/30 天追踪与准确率统计基础数据
+    { name: '每日关注追踪补跑', execute: async (d) => { await trackDailyPicks(d); } },
     { name: '持仓价格刷新', execute: async (d) => { await refreshAllPositionPrices(d); } },
     { name: '周期监控价格刷新', execute: async (d) => { await refreshAllMonitorPrices(d); } },
-    { name: '周期底部检测', execute: (d) => { updateAllMonitors(d); } },
+    { name: '周期底部检测', execute: async (d) => { await updateAllMonitorsWithAI(d); } },
     { name: '持仓集中度检查', execute: (d) => { checkAllUsersConcentrationRisk(d); } },
   ];
 

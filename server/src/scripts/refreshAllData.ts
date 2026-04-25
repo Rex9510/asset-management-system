@@ -23,7 +23,7 @@ import { updateRotationStatus } from '../rotation/rotationService';
 import { updateChainStatus } from '../chain/commodityChainService';
 import { updateMarketEnv } from '../marketenv/marketEnvService';
 import { updateSentiment } from '../sentiment/sentimentService';
-import { updateAllMonitors } from '../cycle/cycleDetectorService';
+import { updateAllMonitorsWithAI } from '../cycle/cycleDetectorService';
 
 console.log('='.repeat(60));
 console.log('开始刷新数据：今日推荐 + 持仓关注 + 技术指标');
@@ -50,7 +50,7 @@ async function refreshAll() {
 
   // 4. 更新周期监控
   console.log('\n[4/6] 更新周期监控状态...');
-  updateAllMonitors(db);
+  await updateAllMonitorsWithAI(db);
   console.log('✓ 周期监控更新完成');
 
   // 5. 更新估值、市场环境、情绪、板块轮动

@@ -104,11 +104,17 @@ function getArrowColor(nodes: ChainNode[], idx: number): string {
 const ChainNodeCard: React.FC<{ node: ChainNode; onOpenDetail: () => void }> = ({ node, onOpenDetail }) => {
   const colors = statusColors[node.status] || statusColors.inactive;
   const changeColor = node.change10d >= 0 ? '#e74c3c' : '#2ed573';
+  const auxColor =
+    node.changeAux == null || Number.isNaN(node.changeAux)
+      ? '#b0b0b0'
+      : node.changeAux >= 0
+        ? '#e67e22'
+        : '#16a085';
 
   return (
     <button
       type="button"
-      style={{ ...styles.nodeButton, ...styles.nodeWrapper }}
+      style={{ ...styles.nodeButton, ...styles.nodeWrapper, borderColor: colors.border }}
       data-testid={`chain-node-${node.symbol}`}
       data-status={node.status}
       aria-label={`${node.name} 详情`}
@@ -119,10 +125,16 @@ const ChainNodeCard: React.FC<{ node: ChainNode; onOpenDetail: () => void }> = (
       </div>
       <span style={{ ...styles.nodeName, color: colors.color }}>{node.name}</span>
       <span style={{ ...styles.changeText, color: changeColor }}>{formatChange(node.change10d)}</span>
+      <span style={{ ...styles.auxText, color: auxColor }}>
+        辅
+        {node.changeAux == null || Number.isNaN(node.changeAux)
+          ? '--'
+          : formatChange(node.changeAux)}
+      </span>
       <span style={{ ...styles.labelTag, background: colors.tagBg, color: colors.color }}>
         {node.label || statusLabel[node.status]}
       </span>
-      <span style={styles.detailCue}>明细</span>
+      <span style={styles.detailCue}>点击看明细</span>
     </button>
   );
 };
@@ -232,9 +244,10 @@ const styles: Record<string, React.CSSProperties> = {
     paddingBottom: '4px',
   },
   nodeButton: {
-    border: 'none',
-    background: 'transparent',
-    padding: 0,
+    border: '1px solid #e7eaf3',
+    background: '#fafbff',
+    borderRadius: '8px',
+    padding: '4px 2px 3px',
     margin: 0,
     font: 'inherit',
     cursor: 'pointer',
@@ -246,36 +259,42 @@ const styles: Record<string, React.CSSProperties> = {
     flexDirection: 'column' as const,
     alignItems: 'center',
     flex: 1,
-    minWidth: '0',
-    gap: '2px',
+    minWidth: 0,
+    gap: '1px',
   },
   circle: {
-    width: '30px',
-    height: '30px',
+    width: '28px',
+    height: '28px',
     borderRadius: '50%',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
   },
   circleText: {
-    fontSize: '10px',
+    fontSize: '9px',
     fontWeight: 600,
   },
   nodeName: {
-    fontSize: '10px',
+    fontSize: '9px',
     fontWeight: 500,
+    whiteSpace: 'nowrap' as const,
+    lineHeight: 1.2,
   },
   changeText: {
-    fontSize: '10px',
+    fontSize: '9px',
     fontWeight: 700,
-    lineHeight: '1.25',
+    lineHeight: '1.15',
+  },
+  auxText: {
+    fontSize: '7px',
+    fontWeight: 600,
+    lineHeight: '1.1',
   },
   detailCue: {
-    fontSize: '8px',
-    color: '#bbb',
+    fontSize: '7px',
+    color: '#6b7280',
     marginTop: '1px',
-    textDecoration: 'underline',
-    textUnderlineOffset: '2px',
+    lineHeight: '1.1',
   },
   methodHint: {
     fontSize: '9px',
@@ -286,12 +305,12 @@ const styles: Record<string, React.CSSProperties> = {
     padding: '0 4px',
   },
   labelTag: {
-    fontSize: '8px',
-    padding: '2px 4px',
+    fontSize: '7px',
+    padding: '1px 3px',
     borderRadius: '4px',
     whiteSpace: 'nowrap' as const,
-    lineHeight: '1.4',
-    marginTop: '1px',
+    lineHeight: '1.2',
+    marginTop: '0',
   },
   modalBackdrop: {
     position: 'fixed',
@@ -390,17 +409,21 @@ const styles: Record<string, React.CSSProperties> = {
     borderTop: '1px solid #eee',
   },
   arrow: {
-    fontSize: '10px',
-    margin: '9px 0 0',
+    fontSize: '9px',
+    margin: '0',
+    display: 'inline-block',
     flexShrink: 1,
+    alignSelf: 'center',
     lineHeight: '1',
     color: '#ddd',
   },
   legend: {
     display: 'flex',
     gap: '12px',
+    rowGap: '6px',
     marginTop: '8px',
     justifyContent: 'center',
+    flexWrap: 'wrap' as const,
   },
   legendItem: {
     display: 'flex',

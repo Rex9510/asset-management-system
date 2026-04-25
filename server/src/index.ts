@@ -8,7 +8,7 @@ import { startScheduler, runScheduledJobs, runStartupDataRefresh } from './sched
 import { runDailyPickJob } from './dailypick/dailyPickService';
 import { ensureAllUserStocksHistory, ensureSpecialStocksHistory } from './market/historyService';
 import { isTradingDay } from './scheduler/tradingDayGuard';
-import { fixBrokenMonitorCodes, updateAllMonitors } from './cycle/cycleDetectorService';
+import { fixBrokenMonitorCodes, updateAllMonitorsWithAI } from './cycle/cycleDetectorService';
 import { backfillMissingSnapshots, deleteSnapshotsOnNonTradingDays } from './snapshot/snapshotService';
 import { syncTradingCalendarFromMarket } from './scheduler/tradingCalendarSyncService';
 import { refreshIndexQuotes } from './sentiment/sentimentService';
@@ -64,7 +64,7 @@ app.listen(PORT, () => {
   }).then(async () => {
     console.log('Special stocks (ETF + cycle monitors) history check complete');
     // 历史数据就绪后，强制刷新所有周期监控（用最新数据重新检测）
-    updateAllMonitors();
+    await updateAllMonitorsWithAI();
     console.log('Cycle monitors refreshed with latest history data');
     try {
       await syncTradingCalendarFromMarket();
