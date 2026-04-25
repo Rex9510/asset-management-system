@@ -23,7 +23,7 @@ const AboutPage: React.FC = () => {
         {/* System Info */}
         <div style={styles.card}>
           <div style={styles.cardTitle}>系统信息</div>
-          <InfoRow label="AI引擎" value="DeepSeek V3" testId="ai-engine" />
+          <InfoRow label="AI引擎" value="Deepseek V4" testId="ai-engine" />
           <InfoRow label="数据源" value="腾讯财经 / 新浪财经" testId="data-source" />
           <InfoRow label="更新时间" value={new Date().toLocaleDateString('zh-CN')} testId="update-time" />
           <InfoRow label="开发者" value="个人项目" testId="developer" />
