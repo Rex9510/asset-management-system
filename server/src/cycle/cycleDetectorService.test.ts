@@ -402,6 +402,19 @@ describe('estimateCycleLength', () => {
     expect(result).not.toBeNull();
     expect(result).toMatch(/约\d+/);
   });
+
+  it('falls back to predefined long cycle when detected period is unrealistically short', () => {
+    // 合成较短波动周期（约150个交易日），对黄金ETF应被预定义康波周期兜底
+    const history = Array.from({ length: 900 }, (_, i) => ({
+      trade_date: `${2021 + Math.floor(i / 250)}-${String(Math.floor((i % 250) / 20) + 1).padStart(2, '0')}-${String((i % 20) + 1).padStart(2, '0')}`,
+      close_price: 5 + 0.8 * Math.sin(i * 2 * Math.PI / 150),
+      high_price: 5.2 + 0.8 * Math.sin(i * 2 * Math.PI / 150),
+      low_price: 4.8 + 0.8 * Math.sin(i * 2 * Math.PI / 150),
+      volume: 1000000,
+    }));
+    const result = estimateCycleLength(history, '518880');
+    expect(result).toContain('康波长周期');
+  });
 });
 
 // --- Description generation tests ---

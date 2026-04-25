@@ -18,6 +18,8 @@ import { getDatabase } from '../db/connection';
 import { calculateRSI, calculateMACD, calculateMA, calculateEMASeries } from '../indicators/indicatorService';
 import { fetchAndSaveStockHistory } from '../market/historyService';
 import { getQuote } from '../market/marketDataService';
+import { getAIProvider } from '../ai/aiProviderFactory';
+import { getCurrentChainStatus } from '../chain/commodityChainService';
 
 // --- Predefined cycle knowledge for common commodity/sector ETFs ---
 // 当历史数据不足以自动检测周期时，使用预定义的行业周期知识作为fallback
@@ -93,6 +95,12 @@ export interface BottomSignalResult {
   rangeMax: number | null;
   /** 分析窗口末根 K 线收盘价，用于消息摘要 */
   anchorPrice: number | null;
+}
+
+interface AICycleAdjustment {
+  analysisWindowYears?: number;
+  cycleLength?: string;
+  description?: string;
 }
 
 interface MarketHistoryRow {
@@ -330,16 +338,20 @@ function resolveTargetWindowYears(
   const spacingDays = getAverageTroughSpacingDays(fullHistory);
   const troughYears = spacingDays != null ? spacingDays / 250 : null;
   const presetYears = PREDEFINED_CYCLES[stockCode]?.avgCycleYears ?? null;
+  // 动态下限：随可用历史跨度变化，避免所有标的被同一个固定值（如 2.5 年）钉死
+  const adaptiveFloor = Math.max(0.8, Math.min(2.2, span * 0.38));
 
   if (troughYears != null && troughYears >= 0.35) {
-    const rooted = Math.max(Math.min(2.5, span), 1.85 * troughYears);
+    const rooted = Math.max(adaptiveFloor, 1.85 * troughYears);
     return Math.min(MAX_HISTORY_YEARS, rooted);
   }
   if (presetYears != null) {
-    const rooted = Math.max(Math.min(2.5, span), 1.85 * presetYears);
+    const rooted = Math.max(adaptiveFloor, 1.85 * presetYears);
     return Math.min(MAX_HISTORY_YEARS, rooted);
   }
-  return Math.min(MAX_HISTORY_YEARS, span);
+  // 无周期先验时，使用与历史跨度相关的平滑目标，避免直接退回固定窗口
+  const fallbackTarget = Math.max(adaptiveFloor, Math.min(span, 1.2 + span * 0.75));
+  return Math.min(MAX_HISTORY_YEARS, fallbackTarget);
 }
 
 function sliceHistoryByYears(historyAsc: MarketHistoryRow[], years: number): MarketHistoryRow[] {
@@ -534,15 +546,24 @@ export function determineStatus(history: MarketHistoryRow[], signals: string[]):
  */
 export function estimateCycleLength(history: MarketHistoryRow[], stockCode?: string): string | null {
   const avgDays = getAverageTroughSpacingDays(history);
+  const preset = stockCode ? PREDEFINED_CYCLES[stockCode] : undefined;
   if (avgDays != null) {
     const avgYears = avgDays / 250;
+    // 对预定义长周期品种做合理性保护，避免短期噪声把周期误判成“几个月一轮”
+    if (preset) {
+      const minReasonableYears = Math.max(1, preset.avgCycleYears * 0.45);
+      const maxReasonableYears = Math.max(minReasonableYears + 0.5, preset.avgCycleYears * 1.8);
+      if (avgYears < minReasonableYears || avgYears > maxReasonableYears) {
+        return preset.cycleLength;
+      }
+    }
     if (avgYears < 1) return `约${Math.round(avgDays / 20)}个月`;
     return `约${Math.round(avgYears)}年`;
   }
 
   // Fallback: 使用预定义周期知识
-  if (stockCode && PREDEFINED_CYCLES[stockCode]) {
-    return PREDEFINED_CYCLES[stockCode].cycleLength;
+  if (preset) {
+    return preset.cycleLength;
   }
 
   return null;
@@ -724,6 +745,84 @@ export function detectBottomSignals(stockCode: string, db: Database.Database): B
   };
 }
 
+const COMMODITY_CHAIN_CODES = new Set([
+  '518880', '161226', '512400', '515220', '516020', '159886', '161129',
+]);
+
+function sanitizeAiYears(input: unknown, fallback: number | null): number | null {
+  const n = Number(input);
+  if (!Number.isFinite(n) || n <= 0) return fallback;
+  return Math.min(10, Math.max(0.5, Math.round(n * 2) / 2));
+}
+
+async function adjustCycleResultWithAI(
+  stockCode: string,
+  stockName: string,
+  base: BottomSignalResult,
+  db: Database.Database
+): Promise<BottomSignalResult> {
+  try {
+    const provider = getAIProvider();
+    const chain = getCurrentChainStatus(db);
+    const chainSummary = chain
+      ? chain.nodes.map((n) => `${n.name}:${n.status}/${n.change10d}%`).join(' | ')
+      : '无';
+    const isGold = stockCode === '518880';
+    const isCommodityChain = COMMODITY_CHAIN_CODES.has(stockCode);
+    const systemPrompt =
+      '你是A股周期分析助手。只输出JSON，不要任何额外文本。';
+    const userPrompt = `
+请基于给定数据，给出周期窗口与文案微调建议。
+输出 JSON：
+{
+  "analysisWindowYears": number,
+  "cycleLength": "string",
+  "description": "string"
+}
+
+约束：
+1) 黄金ETF(518880)必须体现康波长周期逻辑，周期长度不能是“几个月一轮”。
+2) 商品传导链节点（黄金/白银/有色/煤炭/化工/橡胶/原油）主逻辑应优先参考5-10年视角；短期仅作辅助。
+3) 若规则引擎结果已合理，尽量小幅调整，不要剧烈改写。
+4) description 使用中文、1句话，需含“参考约X年历史区间”。
+
+输入：
+stockCode=${stockCode}
+stockName=${stockName}
+isGold=${isGold}
+isCommodityChain=${isCommodityChain}
+ruleStatus=${base.status}
+ruleCycleLength=${base.cycleLength ?? 'null'}
+ruleAnalysisWindowYears=${base.analysisWindowYears ?? 'null'}
+ruleDescription=${base.description}
+signals=${base.signals.join('、') || '无'}
+chainSummary=${chainSummary}
+`;
+    const raw = await provider.chat([{ role: 'user', content: userPrompt }], systemPrompt);
+    const parsed = JSON.parse(raw) as AICycleAdjustment;
+
+    const years = sanitizeAiYears(parsed.analysisWindowYears, base.analysisWindowYears);
+    let cycleLength = parsed.cycleLength?.trim() || base.cycleLength;
+    const description = parsed.description?.trim() || base.description;
+
+    if (stockCode === '518880') {
+      const shortCycle = cycleLength != null && /约\d+个月/.test(cycleLength);
+      if (shortCycle || !cycleLength) {
+        cycleLength = PREDEFINED_CYCLES['518880']?.cycleLength ?? cycleLength;
+      }
+    }
+
+    return {
+      ...base,
+      analysisWindowYears: years,
+      cycleLength,
+      description,
+    };
+  } catch {
+    return base;
+  }
+}
+
 // --- CRUD operations ---
 
 /**
@@ -829,7 +928,8 @@ export async function addMonitor(
   }
 
   // Run initial detection
-  const result = detectBottomSignals(resolvedCode, database);
+  const baseResult = detectBottomSignals(resolvedCode, database);
+  const result = await adjustCycleResultWithAI(resolvedCode, stockName, baseResult, database);
   const now = new Date().toISOString();
 
   const info = database.prepare(
@@ -1043,6 +1143,77 @@ export function updateAllMonitors(db?: Database.Database): void {
       updateAll();
 
       // Create bottom messages if newly triggered
+      if (
+        usersToNotify.length > 0 &&
+        result.anchorPrice != null &&
+        result.rangeMin != null &&
+        result.rangeMax != null
+      ) {
+        createBottomMessages(
+          stock_code,
+          stockName,
+          result.anchorPrice,
+          result.signals,
+          result.rangeMin,
+          result.rangeMax,
+          result.analysisWindowYears,
+          usersToNotify,
+          database
+        );
+      }
+    } catch {
+      // Single stock failure doesn't affect others
+    }
+  }
+}
+
+/**
+ * AI增强版：先跑规则检测，再用AI微调窗口年数/周期文案（失败自动回退规则结果）。
+ */
+export async function updateAllMonitorsWithAI(db?: Database.Database): Promise<void> {
+  const database = db || getDatabase();
+
+  const stocks = database.prepare(
+    `SELECT DISTINCT stock_code FROM cycle_monitors`
+  ).all() as { stock_code: string }[];
+
+  for (const { stock_code } of stocks) {
+    try {
+      const baseResult = detectBottomSignals(stock_code, database);
+      const anyName = database.prepare(
+        `SELECT stock_name FROM cycle_monitors WHERE stock_code = ? LIMIT 1`
+      ).get(stock_code) as { stock_name: string } | undefined;
+      const stockNameForAi = anyName?.stock_name || stock_code;
+      const result = await adjustCycleResultWithAI(stock_code, stockNameForAi, baseResult, database);
+      const now = new Date().toISOString();
+
+      const monitors = database.prepare(
+        `SELECT id, user_id, status, stock_name FROM cycle_monitors WHERE stock_code = ?`
+      ).all(stock_code) as { id: number; user_id: number; status: string; stock_name: string }[];
+
+      const updateStmt = database.prepare(
+        `UPDATE cycle_monitors SET cycle_length = ?, current_phase = ?, status = ?,
+         description = ?, bottom_signals = ?, updated_at = ? WHERE id = ?`
+      );
+
+      const usersToNotify: number[] = [];
+      let stockName = stock_code;
+
+      const updateAll = database.transaction(() => {
+        for (const monitor of monitors) {
+          updateStmt.run(
+            result.cycleLength, result.currentPhase, result.status,
+            result.description, JSON.stringify(result.signals), now, monitor.id
+          );
+          stockName = monitor.stock_name;
+          if (result.status === 'bottom' && monitor.status !== 'bottom') {
+            usersToNotify.push(monitor.user_id);
+          }
+        }
+      });
+
+      updateAll();
+
       if (
         usersToNotify.length > 0 &&
         result.anchorPrice != null &&
