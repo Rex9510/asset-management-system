@@ -40,7 +40,11 @@ const sampleAnalysisJSON = JSON.stringify({
 });
 
 describe('DeepSeekProvider', () => {
-  beforeEach(() => jest.clearAllMocks());
+  beforeEach(() => {
+    jest.clearAllMocks();
+    delete process.env.DEEPSEEK_THINKING_ENABLED;
+    delete process.env.DEEPSEEK_REASONING_EFFORT;
+  });
 
   it('should throw if API key is missing', () => {
     const origKey = process.env.DEEPSEEK_API_KEY;
@@ -60,6 +64,8 @@ describe('DeepSeekProvider', () => {
   });
 
   it('should call analyze and parse result', async () => {
+    process.env.DEEPSEEK_THINKING_ENABLED = 'true';
+    process.env.DEEPSEEK_REASONING_EFFORT = 'high';
     mockedAxios.post.mockResolvedValueOnce({
       data: { choices: [{ message: { content: sampleAnalysisJSON } }] },
     });
@@ -71,12 +77,18 @@ describe('DeepSeekProvider', () => {
     expect(result.keySignals).toContain('MACD金叉');
     expect(mockedAxios.post).toHaveBeenCalledWith(
       'https://api.deepseek.com/v1/chat/completions',
-      expect.objectContaining({ model: 'deepseek-chat' }),
+      expect.objectContaining({
+        model: 'deepseek-chat',
+        reasoning_effort: 'high',
+        extra_body: { thinking: { type: 'enabled' } },
+      }),
       expect.objectContaining({ timeout: 30000 })
     );
   });
 
   it('should call chat and return response', async () => {
+    process.env.DEEPSEEK_THINKING_ENABLED = 'true';
+    process.env.DEEPSEEK_REASONING_EFFORT = 'max';
     mockedAxios.post.mockResolvedValueOnce({
       data: { choices: [{ message: { content: '这是一个参考方案回复' } }] },
     });
@@ -84,6 +96,36 @@ describe('DeepSeekProvider', () => {
     const messages: ChatMessage[] = [{ role: 'user', content: '分析一下茅台' }];
     const result = await provider.chat(messages, '你是投资助手');
     expect(result).toBe('这是一个参考方案回复');
+    expect(mockedAxios.post).toHaveBeenCalledWith(
+      'https://api.deepseek.com/v1/chat/completions',
+      expect.objectContaining({
+        reasoning_effort: 'max',
+        extra_body: { thinking: { type: 'enabled' } },
+      }),
+      expect.any(Object)
+    );
+  });
+
+  it('should disable thinking mode when env is false', async () => {
+    process.env.DEEPSEEK_THINKING_ENABLED = 'false';
+    delete process.env.DEEPSEEK_REASONING_EFFORT;
+    mockedAxios.post.mockResolvedValueOnce({
+      data: { choices: [{ message: { content: '关闭思考模式回复' } }] },
+    });
+    const provider = new DeepSeekProvider(TEST_API_KEY);
+    await provider.chat([{ role: 'user', content: 'test' }]);
+
+    expect(mockedAxios.post).toHaveBeenCalledWith(
+      'https://api.deepseek.com/v1/chat/completions',
+      expect.objectContaining({
+        temperature: 0.7,
+      }),
+      expect.any(Object)
+    );
+
+    const payload = mockedAxios.post.mock.calls[0][1] as Record<string, unknown>;
+    expect(payload.reasoning_effort).toBeUndefined();
+    expect(payload.extra_body).toBeUndefined();
   });
 
   it('should handle rate limit error', async () => {
